@@ -1,0 +1,18 @@
+{
+  "name": "rojai-infra",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "cdk": "cdk"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "2.140.0",
+    "constructs": "10.3.0"
+  },
+  "devDependencies": {
+    "aws-cdk": "2.140.0",
+    "ts-node": "10.9.2",
+    "typescript": "5.4.5"
+  }
+}

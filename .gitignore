@@ -1,0 +1,25 @@
+# macOS
+.DS_Store
+
+# VS Code
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Node.js
+node_modules/
+dist/
+coverage/
+
+# AWS CDK
+cdk.out/
+
+# Environment variables
+.env
+.env.*
+!.env.example
