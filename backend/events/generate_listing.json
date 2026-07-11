@@ -1,0 +1,11 @@
+{
+  "requestContext": {
+    "http": {
+      "method": "POST"
+    }
+  },
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "body": "{\"productName\": \"Handwoven kilim pillow\", \"brand\": \"RojKilim\", \"description\": \"Handwoven wool pillow made in Van, Turkey\", \"category\": \"Home & Kitchen\", \"marketplace\": \"shopify\", \"language\": \"en\", \"tone\": \"professional\"}"
+}
