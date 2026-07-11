@@ -1,108 +1,117 @@
 /**
  * listingService.ts
  *
- * Mock listing-generation service.
- * Simulates a 1.8 s network round-trip and returns realistic copy
- * derived from the form inputs.  No AWS calls are made here —
- * replace `generateListing` body with a real fetch to API Gateway
- * when the backend is ready.
+ * Calls the RojAI backend (POST /generate-listing).
+ *
+ * Local development:
+ *   Set VITE_API_URL=http://localhost:8000 in frontend/.env.local
+ *   and run `USE_MOCK_BEDROCK=true python local_server.py` in the backend.
+ *
+ * Production:
+ *   Set VITE_API_URL to the API Gateway invoke URL deployed by CDK.
+ *
+ * The backend returns `description`; the frontend type uses `fullDescription`.
+ * The mapping is done here, in the service layer, so neither the backend
+ * schema nor the frontend components need to change.
  */
 
 import type { ProductFormData, GeneratedListing } from "../types/listing";
 
-const MOCK_DELAY_MS = 1800;
+// ── Backend response shape (matches backend/schemas.py ListingResponse) ──────
 
-// ─── Tone copy helpers ────────────────────────────────────────────────────────
-
-function toneOpener(tone: string): string {
-  switch (tone) {
-    case "luxury":
-      return "Indulge in the pinnacle of craftsmanship with the";
-    case "friendly":
-      return "Say hello to your new favourite —";
-    default:
-      return "Introducing the";
-  }
+interface BackendListing {
+  title: string;
+  bulletPoints: string[];
+  description: string; // mapped → fullDescription below
+  seoKeywords: string[];
+  tags: string[];
+  metadata: {
+    marketplace: string;
+    language: string;
+    tone: string;
+    source: string;
+  };
 }
 
-function toneDescription(tone: string, name: string, desc: string): string {
-  switch (tone) {
-    case "luxury":
-      return `Crafted for the discerning individual, the ${name} elevates every moment. ${desc} Expect nothing less than exceptional.`;
-    case "friendly":
-      return `We know you're going to love the ${name}! ${desc} It's the kind of product that makes your day a little bit better.`;
-    default:
-      return `The ${name} is engineered to deliver consistent, reliable performance. ${desc} Designed with professionals in mind.`;
-  }
+interface BackendError {
+  error: string | string[];
 }
 
-// ─── Marketplace keyword shaping ─────────────────────────────────────────────
+// ── API URL ───────────────────────────────────────────────────────────────────
 
-function marketplaceTitle(
-  base: string,
-  marketplace: string,
-  brand: string
-): string {
-  switch (marketplace) {
-    case "amazon":
-      return `${brand ? brand + " " : ""}${base} | Premium Quality | Fast Shipping`;
-    case "etsy":
-      return `${base} – Handcrafted ${brand ? "by " + brand : "Gift"} | Ready to Ship`;
-    default:
-      return `${brand ? brand + " – " : ""}${base}`;
+function getApiUrl(): string {
+  const url = import.meta.env.VITE_API_URL;
+  if (!url) {
+    throw new Error(
+      "VITE_API_URL is not set. " +
+        "Add VITE_API_URL=http://localhost:8000 to frontend/.env.local " +
+        "and restart the dev server."
+    );
   }
+  return url.replace(/\/$/, ""); // strip trailing slash
 }
 
-// ─── Main service function ────────────────────────────────────────────────────
+// ── Main export ───────────────────────────────────────────────────────────────
 
 export async function generateListing(
   form: ProductFormData
 ): Promise<GeneratedListing> {
-  // Simulate network latency
-  await new Promise((resolve) => setTimeout(resolve, MOCK_DELAY_MS));
+  const apiUrl = getApiUrl();
+  const endpoint = `${apiUrl}/generate-listing`;
 
-  const { productName, description, category, brand, marketplace, tone } = form;
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(form),
+    });
+  } catch (networkErr) {
+    throw new Error(
+      "Could not reach the backend. " +
+        "Make sure the local server is running on " +
+        (import.meta.env.VITE_API_URL ?? "http://localhost:8000") +
+        "."
+    );
+  }
 
-  const title = marketplaceTitle(
-    `${productName} — ${category}`,
-    marketplace,
-    brand
-  );
+  if (!response.ok) {
+    const errorMessage = await _extractErrorMessage(response);
+    throw new Error(errorMessage);
+  }
 
-  const bulletPoints = [
-    `${toneOpener(tone)} ${productName} — built for performance and reliability`,
-    `Perfect for ${category} enthusiasts seeking a premium experience`,
-    description
-      ? `${description.slice(0, 80)}${description.length > 80 ? "…" : ""}`
-      : `Versatile design fits seamlessly into any workflow or lifestyle`,
-    `${brand ? brand + " quality " : ""}backed by exceptional craftsmanship and attention to detail`,
-    `Available exclusively for ${
-      marketplace.charAt(0).toUpperCase() + marketplace.slice(1)
-    } — order yours today`,
-  ];
+  const data: BackendListing = await response.json();
 
-  const fullDescription = toneDescription(tone, productName, description);
+  // Map backend field name to frontend type
+  return {
+    title: data.title,
+    bulletPoints: data.bulletPoints,
+    fullDescription: data.description, // ← the only name difference
+    seoKeywords: data.seoKeywords,
+    tags: data.tags,
+  };
+}
 
-  const seoKeywords = [
-    productName.toLowerCase(),
-    category.toLowerCase(),
-    brand ? brand.toLowerCase() : "premium",
-    marketplace,
-    tone,
-    `buy ${productName.toLowerCase()}`,
-    `best ${category.toLowerCase()} ${new Date().getFullYear()}`,
-    `${marketplace} ${category.toLowerCase()}`,
-  ].filter(Boolean);
+// ── Error extraction ──────────────────────────────────────────────────────────
 
-  const tags = [
-    productName.split(" ")[0].toLowerCase(),
-    category.toLowerCase().replace(/\s+/g, "-"),
-    brand ? brand.toLowerCase() : "unbranded",
-    marketplace,
-    tone === "luxury" ? "premium" : tone === "friendly" ? "everyday" : "professional",
-    "new-arrival",
-    "top-rated",
-  ];
+async function _extractErrorMessage(response: Response): Promise<string> {
+  try {
+    const body: BackendError = await response.json();
+    if (Array.isArray(body.error)) {
+      return body.error.join(" ");
+    }
+    if (typeof body.error === "string" && body.error.trim()) {
+      return body.error;
+    }
+  } catch {
+    // JSON parse failed — fall through to generic message
+  }
+  return _genericErrorMessage(response.status);
+}
 
-  return { title, bulletPoints, fullDescription, seoKeywords, tags };
+function _genericErrorMessage(status: number): string {
+  if (status === 400) return "The request was invalid. Please check your inputs and try again.";
+  if (status === 502) return "The AI service is temporarily unavailable. Please try again.";
+  if (status === 500) return "An unexpected server error occurred. Please try again.";
+  return "Something went wrong. Please try again.";
 }
