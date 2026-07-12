@@ -77,15 +77,34 @@ export class RojAIStack extends cdk.Stack {
     });
 
     // ── Bedrock permission ─────────────────────────────────────────────────
-    // Scope to the exact model ARN in the deployed region
-    const bedrockModelArn = `arn:aws:bedrock:${this.region}::foundation-model/${bedrockModelId}`;
+    // Support both foundation model IDs and cross-region inference profile IDs.
+    // Inference profiles use: arn:aws:bedrock:<region>:<account>:inference-profile/<id>
+    // Foundation models use:  arn:aws:bedrock:<region>::foundation-model/<id>
+    const isInferenceProfile = bedrockModelId.startsWith("us.") || bedrockModelId.startsWith("global.");
+
+    const bedrockResources: string[] = [];
+    if (isInferenceProfile) {
+      // Inference profile ARN (account-scoped)
+      bedrockResources.push(
+        `arn:aws:bedrock:${this.region}:${this.account}:inference-profile/${bedrockModelId}`
+      );
+      // Also need access to the underlying foundation model(s) in any region
+      const baseModelId = bedrockModelId.replace(/^(us|global)\./, "");
+      bedrockResources.push(
+        `arn:aws:bedrock:*::foundation-model/${baseModelId}`
+      );
+    } else {
+      bedrockResources.push(
+        `arn:aws:bedrock:${this.region}::foundation-model/${bedrockModelId}`
+      );
+    }
 
     generatorFn.addToRolePolicy(
       new iam.PolicyStatement({
         sid: "AllowBedrockInvokeModel",
         effect: iam.Effect.ALLOW,
         actions: ["bedrock:InvokeModel"],
-        resources: [bedrockModelArn],
+        resources: bedrockResources,
       })
     );
 
