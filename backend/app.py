@@ -38,7 +38,9 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
               or event.get("httpMethod", "")
               or "").upper()
 
-    origin = _get_allowed_origin()
+    # Determine the CORS origin to echo back based on the request
+    request_origin = _get_request_origin(event)
+    origin = _resolve_allowed_origin(request_origin)
 
     # OPTIONS preflight
     if method == "OPTIONS":
@@ -102,8 +104,29 @@ def _resolve_mock_mode() -> bool:
     return True
 
 
-def _get_allowed_origin() -> str:
-    return os.environ.get("ALLOWED_ORIGIN", "http://localhost:5173")
+def _get_allowed_origins() -> list[str]:
+    """Parse ALLOWED_ORIGIN env var as a comma-separated list."""
+    raw = os.environ.get("ALLOWED_ORIGIN", "http://localhost:5173")
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
+
+def _get_request_origin(event: dict[str, Any]) -> str:
+    """Extract the Origin header from the incoming request (case-insensitive)."""
+    headers = event.get("headers") or {}
+    # API Gateway v2 lowercases all header keys
+    return headers.get("origin", headers.get("Origin", ""))
+
+
+def _resolve_allowed_origin(request_origin: str) -> str:
+    """
+    Return the origin to put in Access-Control-Allow-Origin.
+    If the request origin matches one of the configured origins, echo it.
+    Otherwise, return the first configured origin (safe default for non-browser clients).
+    """
+    allowed = _get_allowed_origins()
+    if request_origin and request_origin in allowed:
+        return request_origin
+    return allowed[0] if allowed else "http://localhost:5173"
 
 
 def _serialise(obj: Any) -> Any:

@@ -40,11 +40,11 @@ interface BackendError {
 // ── API URL ───────────────────────────────────────────────────────────────────
 
 function getApiUrl(): string {
-  const url = import.meta.env.VITE_API_URL;
+  const url = import.meta.env.VITE_API_BASE_URL;
   if (!url) {
     throw new Error(
-      "VITE_API_URL is not set. " +
-        "Add VITE_API_URL=http://localhost:8000 to frontend/.env.local " +
+      "VITE_API_BASE_URL is not set. " +
+        "Add VITE_API_BASE_URL=http://localhost:8000 to frontend/.env.local " +
         "and restart the dev server."
     );
   }
@@ -70,7 +70,7 @@ export async function generateListing(
     throw new Error(
       "Could not reach the backend. " +
         "Make sure the local server is running on " +
-        (import.meta.env.VITE_API_URL ?? "http://localhost:8000") +
+        (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000") +
         "."
     );
   }
