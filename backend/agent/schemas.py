@@ -63,3 +63,18 @@ class AuditResult:
     @property
     def passed(self) -> bool:
         return not self.needs_recommendations
+
+
+# ── AI Recommendation ────────────────────────────────────────────────────────
+
+@dataclass
+class Recommendation:
+    """AI-generated improvement suggestions for a product listing."""
+    product_id: str
+    product_name: str
+    suggested_title: str
+    suggested_bullet_points: list[str]
+    suggested_seo_keywords: list[str]
+    suggested_tags: list[str]
+    summary: str                                # One-sentence explanation of changes
+    source: str = "bedrock"                     # "bedrock" or "mock"
