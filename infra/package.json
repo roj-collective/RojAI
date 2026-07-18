@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "build": "tsc",
+    "test": "jest",
     "cdk": "cdk"
   },
   "dependencies": {
@@ -12,6 +13,9 @@
   },
   "devDependencies": {
     "aws-cdk": "2.140.0",
+    "@types/jest": "29.5.12",
+    "jest": "29.7.0",
+    "ts-jest": "29.1.4",
     "ts-node": "10.9.2",
     "typescript": "5.4.5"
   }
