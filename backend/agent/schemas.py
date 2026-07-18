@@ -78,3 +78,32 @@ class Recommendation:
     suggested_tags: list[str]
     summary: str                                # One-sentence explanation of changes
     source: str = "bedrock"                     # "bedrock" or "mock"
+
+
+# ── Orchestration Results ────────────────────────────────────────────────────
+
+@dataclass
+class RecommendationResult:
+    """Outcome of a single product recommendation attempt."""
+    product_id: str
+    score: int
+    recommendation: Optional[Recommendation] = None
+    error: Optional[str] = None
+
+    @property
+    def succeeded(self) -> bool:
+        return self.recommendation is not None
+
+
+@dataclass
+class AgentRunResult:
+    """Complete result of one agent orchestration run."""
+    started_at: str                              # ISO timestamp
+    completed_at: str                            # ISO timestamp
+    duration_seconds: float
+    products_scanned: int
+    products_recommended: int                    # Count below threshold
+    successful_recommendations: int
+    failed_recommendations: int
+    recommendations: list[RecommendationResult] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
