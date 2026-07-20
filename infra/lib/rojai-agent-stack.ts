@@ -1,4 +1,5 @@
 import * as cdk from "aws-cdk-lib";
+import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as events from "aws-cdk-lib/aws-events";
 import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as iam from "aws-cdk-lib/aws-iam";
@@ -83,6 +84,16 @@ export class RojAIAgentStack extends cdk.Stack {
       retentionPeriod: cdk.Duration.days(7),
     });
 
+    // ── DynamoDB table for recommendation history ──────────────────────────
+    const recommendationsTable = new dynamodb.Table(this, "RecommendationsTable", {
+      tableName: "rojai-agent-recommendations",
+      partitionKey: { name: "product_id", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "run_timestamp", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      timeToLiveAttribute: "ttl",
+    });
+
     // ── Lambda function ────────────────────────────────────────────────────
     const agentFn = new lambda.Function(this, "AgentFunction", {
       functionName: "rojai-agent",
@@ -119,12 +130,16 @@ export class RojAIAgentStack extends cdk.Stack {
         BEDROCK_MODEL_ID: agentModelId,
         SHOPIFY_SECRET_NAME: shopifySecretName,
         STORE_PROVIDER: "shopify",
+        RECOMMENDATIONS_TABLE_NAME: recommendationsTable.tableName,
         // AWS_REGION is injected automatically by the Lambda runtime
       },
     });
 
     // ── Secrets Manager read permission ────────────────────────────────────
     shopifySecret.grantRead(agentFn);
+
+    // ── DynamoDB read/write permission ─────────────────────────────────────
+    recommendationsTable.grantReadWriteData(agentFn);
 
     // ── Bedrock IAM permission ─────────────────────────────────────────────
     const isInferenceProfile =
@@ -199,6 +214,11 @@ export class RojAIAgentStack extends cdk.Stack {
     new cdk.CfnOutput(this, "AgentModelId", {
       description: "Configured Bedrock model ID",
       value: agentModelId,
+    });
+
+    new cdk.CfnOutput(this, "RecommendationsTableName", {
+      description: "DynamoDB table for recommendation history",
+      value: recommendationsTable.tableName,
     });
   }
 }

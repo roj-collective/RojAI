@@ -50,6 +50,15 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         result.duration_seconds,
     )
 
+    # ── Log individual recommendations to CloudWatch ─────────────────────────
+    _log_recommendations(result)
+
+    # ── Persist recommendations to DynamoDB ──────────────────────────────────
+    saved_count = _save_to_dynamodb(result)
+
+    # ── Build response with full recommendation details ──────────────────────
+    recommendations_detail = _serialize_recommendations(result)
+
     body = {
         "products_scanned": result.products_scanned,
         "products_recommended": result.products_recommended,
@@ -59,6 +68,8 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         "errors": result.errors,
         "started_at": result.started_at,
         "completed_at": result.completed_at,
+        "recommendations_saved_to_dynamodb": saved_count,
+        "recommendations": recommendations_detail,
     }
 
     return {
@@ -170,3 +181,74 @@ def _error_response(status: int, message: str) -> dict[str, Any]:
         "headers": {"Content-Type": "application/json"},
         "body": json.dumps({"error": message}),
     }
+
+
+def _serialize_recommendations(result) -> list[dict[str, Any]]:
+    """Serialize recommendation results into response-friendly dicts."""
+    details = []
+    for rec_result in result.recommendations:
+        item: dict[str, Any] = {
+            "product_id": rec_result.product_id,
+            "score": rec_result.score,
+        }
+
+        if rec_result.succeeded and rec_result.recommendation:
+            rec = rec_result.recommendation
+            item["product_title"] = rec.product_name
+            item["reason"] = _score_reason(rec_result.score)
+            item["suggested_action"] = rec.summary
+            item["suggested_title"] = rec.suggested_title
+            item["suggested_bullet_points"] = rec.suggested_bullet_points
+            item["suggested_seo_keywords"] = rec.suggested_seo_keywords
+            item["suggested_tags"] = rec.suggested_tags
+        else:
+            item["product_title"] = rec_result.product_id
+            item["reason"] = f"Score {rec_result.score}/100 — below threshold"
+            item["suggested_action"] = None
+            item["error"] = rec_result.error
+
+        details.append(item)
+    return details
+
+
+def _log_recommendations(result) -> None:
+    """Log each recommendation to CloudWatch (no credentials logged)."""
+    for rec_result in result.recommendations:
+        if rec_result.succeeded and rec_result.recommendation:
+            rec = rec_result.recommendation
+            logger.info(
+                "RECOMMENDATION | product_id=%s | title=%s | score=%d | action=%s",
+                rec.product_id,
+                rec.product_name,
+                rec_result.score,
+                rec.summary,
+            )
+        else:
+            logger.info(
+                "RECOMMENDATION_FAILED | product_id=%s | score=%d | error=%s",
+                rec_result.product_id,
+                rec_result.score,
+                rec_result.error or "unknown",
+            )
+
+
+def _save_to_dynamodb(result) -> int:
+    """Persist recommendations to DynamoDB. Returns count saved."""
+    try:
+        from .recommendation_store import save_recommendations
+        return save_recommendations(result)
+    except Exception as exc:
+        logger.error("Failed to persist recommendations to DynamoDB: %s", exc)
+        return 0
+
+
+def _score_reason(score: int) -> str:
+    """Generate a human-readable reason based on quality score."""
+    if score <= 20:
+        return f"Critical quality issues (score: {score}/100)"
+    elif score <= 40:
+        return f"Major quality gaps (score: {score}/100)"
+    elif score <= 60:
+        return f"Below threshold (score: {score}/100)"
+    else:
+        return f"Borderline quality (score: {score}/100)"
