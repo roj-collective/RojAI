@@ -52,12 +52,12 @@ then tests, then documentation.
     - _Requirements: 7.4, 9.1, 9.2, 9.3_
 
 - [ ] 2. Implement CDK infrastructure stack
-  - [~] 2.1 Implement CDK app entry point (`infra/bin/app.ts`)
+  - [ ] 2.1 Implement CDK app entry point (`infra/bin/app.ts`)
     - Write the entry point that instantiates `cdk.App` and `RojAIStack`, injecting
       `CDK_DEFAULT_ACCOUNT` and `CDK_DEFAULT_REGION` from environment variables.
     - _Requirements: 1.5, 4.1, 5.9_
 
-  - [~] 2.2 Implement RojAIStack — S3 bucket and CloudFront distribution
+  - [ ] 2.2 Implement RojAIStack — S3 bucket and CloudFront distribution
     - In `infra/lib/rojAI-stack.ts`, create the S3 bucket with
       `blockPublicAccess: BlockPublicAccess.BLOCK_ALL`, `removalPolicy: RemovalPolicy.RETAIN`,
       and `versioned: false`.
@@ -67,7 +67,7 @@ then tests, then documentation.
       SPA error-response rule.
     - _Requirements: 5.5, 5.6, 5.8, 5.10_
 
-  - [~] 2.3 Implement RojAIStack — Lambda function and IAM grants
+  - [ ] 2.3 Implement RojAIStack — Lambda function and IAM grants
     - Add the Generator Lambda using `Runtime.PYTHON_3_12`, handler `handler.handler`,
       `Code.fromAsset("../backend/src")`, timeout 30 s, memory 512 MB.
     - Attach a dedicated `LogGroup` with 30-day retention.
@@ -77,7 +77,7 @@ then tests, then documentation.
     - Inject `BUCKET_NAME` and `BEDROCK_MODEL_ID` as Lambda environment variables.
     - _Requirements: 4.1, 5.3, 5.4, 5.6, 5.7_
 
-  - [~] 2.4 Implement RojAIStack — API Gateway HTTP API
+  - [ ] 2.4 Implement RojAIStack — API Gateway HTTP API
     - Create an `HttpApi` with `corsPreflight` allowing origins
       `[https://<cfDomain>, http://localhost:3000, http://localhost:5173]`, methods
       `[POST, OPTIONS]`, and headers `["Content-Type"]`.
@@ -86,7 +86,7 @@ then tests, then documentation.
       `accessLogSettings` pointing to a dedicated `LogGroup`.
     - _Requirements: 4.2, 5.1, 5.2_
 
-  - [~] 2.5 Implement RojAIStack — CloudWatch Dashboard, Alarm, and CfnOutputs
+  - [ ] 2.5 Implement RojAIStack — CloudWatch Dashboard, Alarm, and CfnOutputs
     - Create a `Dashboard` named `RojAI-MVP` with widgets for: Lambda invocation count,
       Lambda error count, Lambda P99 duration, API Gateway 4xx error rate, API Gateway
       5xx error rate.
@@ -104,12 +104,12 @@ then tests, then documentation.
     - Assert: Alarm threshold 5 over a 5-minute period.
     - _Requirements: 5.3, 5.4, 5.6, 5.1, 6.4, 6.5_
 
-- [~] 3. Checkpoint — infra scaffold complete
+- [ ] 3. Checkpoint — infra scaffold complete
   - Run `cd infra && npm install && npm run build` and confirm zero TypeScript errors.
     Ask the user if any clarifications are needed before continuing.
 
 - [ ] 4. Implement Python Lambda handler (`backend/src/handler.py`)
-  - [~] 4.1 Implement `validate_request` and core handler skeleton
+  - [ ] 4.1 Implement `validate_request` and core handler skeleton
     - Write `validate_request(body: dict) -> dict` enforcing all field rules from
       Requirement 4.3: `productName` (required, 1–200 chars), `keyFeatures` (required,
       1–2000 chars), `category` (required, 1–100 chars), `imageUrl` (optional, max 2048
@@ -128,7 +128,7 @@ then tests, then documentation.
     - Minimum 100 examples. Tag: `# Feature: rojAI-mvp, Property 1: ...`
     - **Validates: Requirements 4.3, 10.1**
 
-  - [~] 4.3 Implement `all_tokens_present` and `render_prompt`
+  - [ ] 4.3 Implement `all_tokens_present` and `render_prompt`
     - Write `all_tokens_present(template: str) -> bool` returning `True` iff all three
       tokens `{{productName}}`, `{{keyFeatures}}`, `{{category}}` are substrings of
       `template`.
@@ -149,7 +149,7 @@ then tests, then documentation.
     - Minimum 100 examples each. Tag each with the property number.
     - **Validates: Requirements 4.6, 9.2**
 
-  - [~] 4.5 Implement `get_prompt_template`, `invoke_bedrock`, and `parse_bedrock_response`
+  - [ ] 4.5 Implement `get_prompt_template`, `invoke_bedrock`, and `parse_bedrock_response`
     - Write `get_prompt_template() -> str` using `boto3` S3 client to `get_object` at key
       `prompts/listing-v1.txt` from `BUCKET_NAME`; raise on `ClientError`.
     - Write `invoke_bedrock(prompt: str) -> str` using `boto3` `bedrock-runtime` client
@@ -171,7 +171,7 @@ then tests, then documentation.
     - Minimum 100 examples each.
     - **Validates: Requirements 9.4, 4.4, 4.8, 10.3**
 
-  - [~] 4.7 Implement `log_structured`, `save_artifact`, and complete handler wiring
+  - [ ] 4.7 Implement `log_structured`, `save_artifact`, and complete handler wiring
     - Write `log_structured(request_id, category, duration_ms, status)` that prints a
       JSON object with exactly the four keys `requestId`, `category`, `durationMs`,
       `status` — and no seller-supplied content.
@@ -209,17 +209,17 @@ then tests, then documentation.
     - `imageUrl` without `https://` → 400 with `{"imageUrl": "..."}` in error body.
     - _Requirements: 10.1, 10.2, 10.3, 4.8, 4.10_
 
-- [~] 5. Checkpoint — backend complete
+- [ ] 5. Checkpoint — backend complete
   - Run `cd backend && pip install -r requirements.txt && python -m pytest tests/ -v` and
     confirm all tests pass. Ask the user if any clarifications are needed before continuing.
 
 - [ ] 6. Implement shared TypeScript types and API abstraction layer
-  - [~] 6.1 Create `frontend/src/types.ts` with `ListingRequest` and `ListingResponse`
+  - [ ] 6.1 Create `frontend/src/types.ts` with `ListingRequest` and `ListingResponse`
     - Define the two interfaces exactly as specified in the design, including all field
       constraints as JSDoc comments.
     - _Requirements: 4.3, 4.4_
 
-  - [~] 6.2 Create `frontend/src/api/types.ts` and `frontend/src/api/client.ts`
+  - [ ] 6.2 Create `frontend/src/api/types.ts` and `frontend/src/api/client.ts`
     - Define `GenerateListing` function type in `api/types.ts`.
     - Implement `generateListing` in `client.ts` using `fetch` against
       `${import.meta.env.VITE_API_URL}/listings/generate`; parse error body and throw a
@@ -227,14 +227,14 @@ then tests, then documentation.
       an `AbortController` with a 20-second timeout; on abort throw the timeout message.
     - _Requirements: 3.2, 3.7, 10.4_
 
-  - [~] 6.3 Create `frontend/src/mocks/mockClient.ts`
+  - [ ] 6.3 Create `frontend/src/mocks/mockClient.ts`
     - Implement `generateListing` returning a hardcoded valid `ListingResponse` after a
       1.5 s `setTimeout`-based delay. Shape must match the `ListingResponse` interface
       exactly including a mock UUID `requestId`.
     - _Requirements: 3.5 (local dev support implied by design)_
 
 - [ ] 7. Implement React frontend components
-  - [~] 7.1 Implement `frontend/src/components/ListingForm.tsx`
+  - [ ] 7.1 Implement `frontend/src/components/ListingForm.tsx`
     - Render four fields: `productName` (text input), `keyFeatures` (textarea), `category`
       (select dropdown with a fixed list of marketplace categories), `imageUrl` (text input,
       optional).
@@ -245,7 +245,7 @@ then tests, then documentation.
     - Accept `onSubmit: (req: ListingRequest) => void` and `isLoading: boolean` props.
     - _Requirements: 3.1, 3.2, 3.3, 3.6_
 
-  - [~] 7.2 Implement `frontend/src/components/ListingResult.tsx`
+  - [ ] 7.2 Implement `frontend/src/components/ListingResult.tsx`
     - When `response` is non-null: render three labelled `<textarea readOnly>` elements
       for `title`, `bulletPoints` (newline-joined), and `description`.
     - When `error` is non-null: render a styled error banner with the human-readable
@@ -253,7 +253,7 @@ then tests, then documentation.
     - Accept `response: ListingResponse | null` and `error: string | null` props.
     - _Requirements: 3.5, 10.4_
 
-  - [~] 7.3 Implement `frontend/src/App.tsx`
+  - [ ] 7.3 Implement `frontend/src/App.tsx`
     - Select client at startup: if `import.meta.env.VITE_MOCK_MODE === "true"` import
       `mockClient`, else import `client`.
     - Manage `isLoading`, `response`, and `error` React state.
@@ -264,14 +264,14 @@ then tests, then documentation.
     - Render `<ListingForm>` and `<ListingResult>` wired to state.
     - _Requirements: 3.2, 3.3, 3.4, 3.7_
 
-- [~] 8. Checkpoint — frontend mock mode runnable
+- [ ] 8. Checkpoint — frontend mock mode runnable
   - Run `cd frontend && npm install && npm run dev` (user should run this manually) and
     confirm the app loads at `http://localhost:5173`, the form renders, and submitting with
     `VITE_MOCK_MODE=true` shows a mock listing result after ~1.5 s. Ask the user to verify
     this before continuing.
 
 - [ ] 9. Write frontend tests
-  - [~] 9.1 Write example-based tests for `ListingForm` and `mockClient`
+  - [ ] 9.1 Write example-based tests for `ListingForm` and `mockClient`
     - `ListingForm` renders all four fields and the category dropdown.
     - `ListingForm` submit with all fields populated calls `onSubmit` exactly once.
     - `ListingForm` submit with empty `productName` shows inline error and does NOT call
@@ -299,7 +299,7 @@ then tests, then documentation.
     - Minimum 100 examples. Tag: `// Feature: rojAI-mvp, Property 8: ...`
     - **Validates: Requirements 3.5, 1.3**
 
-- [~] 10. Write README.md
+- [ ] 10. Write README.md
   - Update the top-level `README.md` with:
     - Project overview (what RojAI is and does).
     - Prerequisites (Node.js 18+, Python 3.12, AWS CLI configured, CDK bootstrapped).
@@ -312,7 +312,7 @@ then tests, then documentation.
       first deploy).
     - _Requirements: 8.3, 8.5_
 
-- [~] 11. Final checkpoint — all tests pass
+- [ ] 11. Final checkpoint — all tests pass
   - Run `cd backend && python -m pytest tests/ -v` and confirm all backend tests pass.
   - Run `cd frontend && npm run test -- --run` and confirm all frontend tests pass.
   - Run `cd infra && npm run build` and confirm zero TypeScript errors.

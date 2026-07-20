@@ -100,6 +100,28 @@ def _get_model_id() -> str:
     return model_id
 
 
+def _get_store_provider():
+    """
+    Select the store provider based on STORE_PROVIDER env var.
+
+    Values:
+      - "shopify" (default): Fetch products from the Shopify Admin API.
+      - "mock": Use the built-in mock product catalog.
+    """
+    provider = os.environ.get("STORE_PROVIDER", "mock").strip().lower()
+
+    if provider == "shopify":
+        from .shopify_store import get_all_products as shopify_get_all_products
+        return shopify_get_all_products
+    elif provider == "mock":
+        from .mock_store import get_all_products as mock_get_all_products
+        return mock_get_all_products
+    else:
+        raise ConfigurationError(
+            f"Unknown STORE_PROVIDER '{provider}'. Use 'shopify' or 'mock'."
+        )
+
+
 # ── Factory ──────────────────────────────────────────────────────────────────
 
 # This factory function is the DI seam — tests override it to avoid AWS calls.
@@ -118,16 +140,16 @@ def _create_agent():
     # Import here to avoid circular imports and keep handler module lightweight
     from .orchestrator import DailyMerchandisingAgent
     from .evaluator import evaluate_product
-    from .mock_store import get_all_products
     from .bedrock_client import NovaBedrockClient
 
     threshold = _get_threshold()
     model_id = _get_model_id()
+    store_fn = _get_store_provider()
 
     client = NovaBedrockClient(model_id=model_id)
 
     return DailyMerchandisingAgent(
-        store=get_all_products,
+        store=store_fn,
         evaluator=evaluate_product,
         bedrock_client=client,
         quality_threshold=threshold,

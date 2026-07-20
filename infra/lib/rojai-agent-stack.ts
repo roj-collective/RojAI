@@ -4,6 +4,7 @@ import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as logs from "aws-cdk-lib/aws-logs";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
 import * as path from "path";
@@ -30,6 +31,8 @@ export interface RojAIAgentStackProps extends cdk.StackProps {
   scheduleExpression?: string;
   /** Whether the schedule is enabled. Default: true */
   scheduleEnabled?: boolean;
+  /** Name of the Secrets Manager secret containing Shopify credentials. Default: rojai/shopify */
+  shopifySecretName?: string;
 }
 
 export class RojAIAgentStack extends cdk.Stack {
@@ -54,6 +57,18 @@ export class RojAIAgentStack extends cdk.Stack {
     const scheduleEnabled: boolean =
       (this.node.tryGetContext("agentScheduleEnabled") ?? "true") !== "false" &&
       (props?.scheduleEnabled !== false);
+
+    const shopifySecretName: string =
+      this.node.tryGetContext("shopifySecretName") ??
+      props?.shopifySecretName ??
+      "rojai/shopify";
+
+    // ── Shopify Secrets Manager secret ─────────────────────────────────────
+    const shopifySecret = secretsmanager.Secret.fromSecretNameV2(
+      this,
+      "ShopifySecret",
+      shopifySecretName
+    );
 
     // ── CloudWatch log group ───────────────────────────────────────────────
     const logGroup = new logs.LogGroup(this, "AgentLogGroup", {
@@ -102,9 +117,14 @@ export class RojAIAgentStack extends cdk.Stack {
       environment: {
         AGENT_QUALITY_THRESHOLD: String(qualityThreshold),
         BEDROCK_MODEL_ID: agentModelId,
+        SHOPIFY_SECRET_NAME: shopifySecretName,
+        STORE_PROVIDER: "shopify",
         // AWS_REGION is injected automatically by the Lambda runtime
       },
     });
+
+    // ── Secrets Manager read permission ────────────────────────────────────
+    shopifySecret.grantRead(agentFn);
 
     // ── Bedrock IAM permission ─────────────────────────────────────────────
     const isInferenceProfile =
