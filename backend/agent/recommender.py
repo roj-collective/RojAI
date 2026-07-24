@@ -188,22 +188,45 @@ def _try_extract_json(text: str) -> dict | None:
 
 
 def _validate_recommendation(data: dict) -> None:
-    """Validate the parsed response has all required fields with correct types."""
+    """Validate the parsed response matches the prompt contract exactly."""
     missing = _REQUIRED_KEYS - data.keys()
     if missing:
         raise RecommenderError(f"Model output missing required keys: {sorted(missing)}")
 
+    # suggestedTitle: non-empty string
     if not isinstance(data["suggestedTitle"], str) or not data["suggestedTitle"].strip():
         raise RecommenderError("'suggestedTitle' must be a non-empty string.")
 
-    if not isinstance(data["suggestedBulletPoints"], list) or len(data["suggestedBulletPoints"]) == 0:
-        raise RecommenderError("'suggestedBulletPoints' must be a non-empty list.")
+    # suggestedBulletPoints: exactly 5 non-empty strings
+    bullets = data["suggestedBulletPoints"]
+    if not isinstance(bullets, list) or len(bullets) != 5:
+        raise RecommenderError(
+            f"'suggestedBulletPoints' must be exactly 5 items, got {len(bullets) if isinstance(bullets, list) else type(bullets).__name__}."
+        )
+    for i, b in enumerate(bullets):
+        if not isinstance(b, str) or not b.strip():
+            raise RecommenderError(f"'suggestedBulletPoints[{i}]' must be a non-empty string.")
 
-    if not isinstance(data["suggestedSeoKeywords"], list) or len(data["suggestedSeoKeywords"]) == 0:
-        raise RecommenderError("'suggestedSeoKeywords' must be a non-empty list.")
+    # suggestedSeoKeywords: 5-8 non-empty strings
+    keywords = data["suggestedSeoKeywords"]
+    if not isinstance(keywords, list) or not (5 <= len(keywords) <= 8):
+        raise RecommenderError(
+            f"'suggestedSeoKeywords' must contain 5-8 items, got {len(keywords) if isinstance(keywords, list) else type(keywords).__name__}."
+        )
+    for i, k in enumerate(keywords):
+        if not isinstance(k, str) or not k.strip():
+            raise RecommenderError(f"'suggestedSeoKeywords[{i}]' must be a non-empty string.")
 
-    if not isinstance(data["suggestedTags"], list) or len(data["suggestedTags"]) == 0:
-        raise RecommenderError("'suggestedTags' must be a non-empty list.")
+    # suggestedTags: 5-8 non-empty strings
+    tags = data["suggestedTags"]
+    if not isinstance(tags, list) or not (5 <= len(tags) <= 8):
+        raise RecommenderError(
+            f"'suggestedTags' must contain 5-8 items, got {len(tags) if isinstance(tags, list) else type(tags).__name__}."
+        )
+    for i, t in enumerate(tags):
+        if not isinstance(t, str) or not t.strip():
+            raise RecommenderError(f"'suggestedTags[{i}]' must be a non-empty string.")
 
+    # summary: non-empty string
     if not isinstance(data["summary"], str) or not data["summary"].strip():
         raise RecommenderError("'summary' must be a non-empty string.")

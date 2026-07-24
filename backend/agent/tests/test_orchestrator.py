@@ -40,6 +40,11 @@ def _make_product(product_id: str = "p1", score_target: str = "low") -> Product:
             current_bullet_points=[f"Bullet {i} with enough characters for quality" for i in range(5)],
             current_seo_keywords=["kw1", "kw2", "kw3", "kw4", "kw5"],
             current_tags=["t1", "t2", "t3", "t4", "t5"],
+            status="ACTIVE",
+            image_count=2,
+            total_inventory=10,
+            seo_title="Great Product SEO Title Here",
+            seo_description="A detailed SEO description for the product.",
         )
     else:
         return Product(
@@ -52,6 +57,11 @@ def _make_product(product_id: str = "p1", score_target: str = "low") -> Product:
             current_bullet_points=["Short"],
             current_seo_keywords=[],
             current_tags=[],
+            status="DRAFT",
+            image_count=0,
+            total_inventory=0,
+            seo_title=None,
+            seo_description=None,
         )
 
 
