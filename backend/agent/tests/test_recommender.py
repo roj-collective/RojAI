@@ -229,3 +229,163 @@ def test_findings_come_from_evaluator_not_recommender():
     assert isinstance(result, Recommendation)
     # Recommendation has no findings attribute — it's purely generative
     assert not hasattr(result, "findings")
+
+
+# ── Validation boundary tests ────────────────────────────────────────────────
+
+def test_validation_rejects_4_bullet_points():
+    """suggestedBulletPoints must be exactly 5."""
+    product = _make_product()
+    audit = _make_audit_result(product)
+
+    class FourBulletsClient:
+        def invoke(self, prompt: str) -> str:
+            import json
+            return json.dumps({
+                "suggestedTitle": "Title",
+                "suggestedBulletPoints": ["a", "b", "c", "d"],
+                "suggestedSeoKeywords": ["k1", "k2", "k3", "k4", "k5"],
+                "suggestedTags": ["t1", "t2", "t3", "t4", "t5"],
+                "summary": "Summary",
+            })
+
+    with pytest.raises(RecommenderError, match="exactly 5"):
+        generate_recommendation(product, audit, FourBulletsClient())
+
+
+def test_validation_rejects_6_bullet_points():
+    """suggestedBulletPoints must be exactly 5."""
+    product = _make_product()
+    audit = _make_audit_result(product)
+
+    class SixBulletsClient:
+        def invoke(self, prompt: str) -> str:
+            import json
+            return json.dumps({
+                "suggestedTitle": "Title",
+                "suggestedBulletPoints": ["a", "b", "c", "d", "e", "f"],
+                "suggestedSeoKeywords": ["k1", "k2", "k3", "k4", "k5"],
+                "suggestedTags": ["t1", "t2", "t3", "t4", "t5"],
+                "summary": "Summary",
+            })
+
+    with pytest.raises(RecommenderError, match="exactly 5"):
+        generate_recommendation(product, audit, SixBulletsClient())
+
+
+def test_validation_rejects_4_seo_keywords():
+    """suggestedSeoKeywords must be 5-8."""
+    product = _make_product()
+    audit = _make_audit_result(product)
+
+    class FewKeywordsClient:
+        def invoke(self, prompt: str) -> str:
+            import json
+            return json.dumps({
+                "suggestedTitle": "Title",
+                "suggestedBulletPoints": ["a", "b", "c", "d", "e"],
+                "suggestedSeoKeywords": ["k1", "k2", "k3", "k4"],
+                "suggestedTags": ["t1", "t2", "t3", "t4", "t5"],
+                "summary": "Summary",
+            })
+
+    with pytest.raises(RecommenderError, match="5-8"):
+        generate_recommendation(product, audit, FewKeywordsClient())
+
+
+def test_validation_rejects_9_seo_keywords():
+    """suggestedSeoKeywords must be 5-8."""
+    product = _make_product()
+    audit = _make_audit_result(product)
+
+    class ManyKeywordsClient:
+        def invoke(self, prompt: str) -> str:
+            import json
+            return json.dumps({
+                "suggestedTitle": "Title",
+                "suggestedBulletPoints": ["a", "b", "c", "d", "e"],
+                "suggestedSeoKeywords": ["k1", "k2", "k3", "k4", "k5", "k6", "k7", "k8", "k9"],
+                "suggestedTags": ["t1", "t2", "t3", "t4", "t5"],
+                "summary": "Summary",
+            })
+
+    with pytest.raises(RecommenderError, match="5-8"):
+        generate_recommendation(product, audit, ManyKeywordsClient())
+
+
+def test_validation_rejects_4_tags():
+    """suggestedTags must be 5-8."""
+    product = _make_product()
+    audit = _make_audit_result(product)
+
+    class FewTagsClient:
+        def invoke(self, prompt: str) -> str:
+            import json
+            return json.dumps({
+                "suggestedTitle": "Title",
+                "suggestedBulletPoints": ["a", "b", "c", "d", "e"],
+                "suggestedSeoKeywords": ["k1", "k2", "k3", "k4", "k5"],
+                "suggestedTags": ["t1", "t2", "t3", "t4"],
+                "summary": "Summary",
+            })
+
+    with pytest.raises(RecommenderError, match="5-8"):
+        generate_recommendation(product, audit, FewTagsClient())
+
+
+def test_validation_rejects_empty_bullet_string():
+    """Empty strings in bullet points should be rejected."""
+    product = _make_product()
+    audit = _make_audit_result(product)
+
+    class EmptyBulletClient:
+        def invoke(self, prompt: str) -> str:
+            import json
+            return json.dumps({
+                "suggestedTitle": "Title",
+                "suggestedBulletPoints": ["a", "b", "", "d", "e"],
+                "suggestedSeoKeywords": ["k1", "k2", "k3", "k4", "k5"],
+                "suggestedTags": ["t1", "t2", "t3", "t4", "t5"],
+                "summary": "Summary",
+            })
+
+    with pytest.raises(RecommenderError, match="non-empty string"):
+        generate_recommendation(product, audit, EmptyBulletClient())
+
+
+def test_validation_rejects_non_string_in_keywords():
+    """Non-string items in suggestedSeoKeywords should be rejected."""
+    product = _make_product()
+    audit = _make_audit_result(product)
+
+    class BadTypeClient:
+        def invoke(self, prompt: str) -> str:
+            import json
+            return json.dumps({
+                "suggestedTitle": "Title",
+                "suggestedBulletPoints": ["a", "b", "c", "d", "e"],
+                "suggestedSeoKeywords": ["k1", "k2", 123, "k4", "k5"],
+                "suggestedTags": ["t1", "t2", "t3", "t4", "t5"],
+                "summary": "Summary",
+            })
+
+    with pytest.raises(RecommenderError, match="non-empty string"):
+        generate_recommendation(product, audit, BadTypeClient())
+
+
+def test_validation_accepts_5_keywords():
+    """Exactly 5 keywords should pass."""
+    product = _make_product()
+    audit = _make_audit_result(product)
+    client = MockBedrockClient()
+    result = generate_recommendation(product, audit, client)
+    assert len(result.suggested_seo_keywords) == 5
+
+
+def test_validation_accepts_5_tags():
+    """Exactly 5 tags should pass."""
+    product = _make_product()
+    audit = _make_audit_result(product)
+    client = MockBedrockClient()
+    result = generate_recommendation(product, audit, client)
+    assert len(result.suggested_tags) == 5
