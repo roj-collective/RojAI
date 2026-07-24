@@ -26,12 +26,16 @@ TAGS_MAX_POINTS = 15
 
 # ── Shopify rule weights (sum to 100) ────────────────────────────────────────
 # Shopify products don't have bullet points or standalone SEO keyword lists.
-# Weight is redistributed to fields that Shopify actually provides.
-SHOPIFY_TITLE_MAX_POINTS = 25
-SHOPIFY_DESCRIPTION_MAX_POINTS = 25
-SHOPIFY_TAGS_MAX_POINTS = 25
-SHOPIFY_VENDOR_MAX_POINTS = 10
-SHOPIFY_CATEGORY_MAX_POINTS = 15
+# Weight is distributed across Shopify-native fields.
+SHOPIFY_TITLE_MAX_POINTS = 20
+SHOPIFY_DESCRIPTION_MAX_POINTS = 20
+SHOPIFY_TAGS_MAX_POINTS = 15
+SHOPIFY_VENDOR_MAX_POINTS = 5
+SHOPIFY_CATEGORY_MAX_POINTS = 5
+SHOPIFY_IMAGES_MAX_POINTS = 15
+SHOPIFY_STATUS_MAX_POINTS = 5
+SHOPIFY_SEO_TITLE_MAX_POINTS = 8
+SHOPIFY_SEO_DESCRIPTION_MAX_POINTS = 7
 
 # ── Thresholds ───────────────────────────────────────────────────────────────
 TITLE_MIN_LENGTH = 50
@@ -322,6 +326,74 @@ def _check_shopify_category(product: Product) -> Finding | None:
     return None
 
 
+def _check_shopify_images(product: Product) -> Finding | None:
+    """Penalize Shopify products with no images."""
+    if product.image_count == 0:
+        return Finding(
+            rule_id="images_missing",
+            field="images",
+            severity=Severity.HIGH,
+            message="No product images. Add at least one image to improve conversions.",
+            current_value="0 images",
+            points_deducted=SHOPIFY_IMAGES_MAX_POINTS,
+        )
+    return None
+
+
+def _check_shopify_status(product: Product) -> Finding | None:
+    """Penalize draft or archived products (low severity — informational)."""
+    status = (product.status or "").upper()
+    if status == "DRAFT":
+        return Finding(
+            rule_id="status_draft",
+            field="status",
+            severity=Severity.LOW,
+            message="Product is in DRAFT status and not visible to customers.",
+            current_value="DRAFT",
+            points_deducted=SHOPIFY_STATUS_MAX_POINTS,
+        )
+    if status == "ARCHIVED":
+        return Finding(
+            rule_id="status_archived",
+            field="status",
+            severity=Severity.MEDIUM,
+            message="Product is ARCHIVED and not available for purchase.",
+            current_value="ARCHIVED",
+            points_deducted=SHOPIFY_STATUS_MAX_POINTS,
+        )
+    return None
+
+
+def _check_shopify_seo_title(product: Product) -> Finding | None:
+    """Penalize missing SEO title (Shopify's page title for search engines)."""
+    seo_title = (product.seo_title or "").strip()
+    if not seo_title:
+        return Finding(
+            rule_id="seo_title_missing",
+            field="seo_title",
+            severity=Severity.MEDIUM,
+            message="No SEO title set. Search engines will use the product title instead.",
+            current_value="(empty)",
+            points_deducted=SHOPIFY_SEO_TITLE_MAX_POINTS,
+        )
+    return None
+
+
+def _check_shopify_seo_description(product: Product) -> Finding | None:
+    """Penalize missing SEO description (meta description for search results)."""
+    seo_desc = (product.seo_description or "").strip()
+    if not seo_desc:
+        return Finding(
+            rule_id="seo_description_missing",
+            field="seo_description",
+            severity=Severity.MEDIUM,
+            message="No SEO description set. This reduces search result click-through rate.",
+            current_value="(empty)",
+            points_deducted=SHOPIFY_SEO_DESCRIPTION_MAX_POINTS,
+        )
+    return None
+
+
 # ── Rule registries ──────────────────────────────────────────────────────────
 
 _GENERIC_RULES = [
@@ -339,4 +411,8 @@ _SHOPIFY_RULES = [
     _check_tags,
     _check_shopify_vendor,
     _check_shopify_category,
+    _check_shopify_images,
+    _check_shopify_status,
+    _check_shopify_seo_title,
+    _check_shopify_seo_description,
 ]

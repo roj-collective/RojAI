@@ -39,6 +39,11 @@ def _make_product(**overrides) -> Product:
         ],
         "current_seo_keywords": ["test product", "home widget", "premium quality", "kitchen tool", "best widget"],
         "current_tags": ["test-product", "home-kitchen", "premium", "widget", "gift-idea"],
+        "status": "ACTIVE",
+        "image_count": 3,
+        "total_inventory": 10,
+        "seo_title": "TestBrand Premium Test Product for Home",
+        "seo_description": "Shop the best test products for your home and kitchen.",
     }
     defaults.update(overrides)
     return Product(**defaults)
@@ -302,8 +307,13 @@ def _make_shopify_product(**overrides) -> Product:
         "brand": "RojKilim",
         "current_title": "Handwoven Kilim Rug — Authentic Turkish Flat-Weave for Modern Boho Decor",
         "current_bullet_points": [],  # Shopify doesn't have bullets
-        "current_seo_keywords": ["kilim", "rug", "turkish", "handwoven", "boho"],
+        "current_seo_keywords": [],   # Tags and SEO are separate on Shopify
         "current_tags": ["kilim-rug", "turkish-decor", "handwoven", "boho-home", "artisan-made"],
+        "status": "ACTIVE",
+        "image_count": 3,
+        "total_inventory": 10,
+        "seo_title": "Handwoven Kilim Rug | Authentic Turkish Flat-Weave",
+        "seo_description": "Shop our authentic handwoven kilim rugs crafted by Eastern Turkish artisans.",
     }
     defaults.update(overrides)
     return Product(**defaults)
@@ -326,12 +336,12 @@ def test_shopify_product_not_penalized_for_missing_bullets():
     assert bullet_findings == []
 
 
-def test_shopify_product_not_penalized_for_missing_seo_keywords_field():
-    """Shopify products use tags for discoverability; standalone SEO keywords are not required."""
+def test_shopify_product_not_penalized_for_empty_seo_keywords_field():
+    """Shopify products are not scored on standalone SEO keywords (uses tags + SEO fields instead)."""
     product = _make_shopify_product(current_seo_keywords=[])
     result = evaluate_product(product)
-    seo_findings = [f for f in result.findings if "seo_keywords" in f.rule_id]
-    assert seo_findings == []
+    seo_kw_findings = [f for f in result.findings if f.rule_id == "seo_keywords_missing"]
+    assert seo_kw_findings == []
 
 
 def test_shopify_product_penalized_for_missing_vendor():
@@ -381,3 +391,133 @@ def test_amazon_product_still_penalized_for_missing_seo_keywords():
     result = evaluate_product(product)
     seo_findings = [f for f in result.findings if "seo_keywords" in f.rule_id]
     assert len(seo_findings) == 1
+
+
+# ── Shopify images rule ──────────────────────────────────────────────────────
+
+def test_shopify_product_penalized_for_no_images():
+    """Shopify products should lose points for having zero images."""
+    product = _make_shopify_product(image_count=0)
+    result = evaluate_product(product)
+    img_findings = [f for f in result.findings if f.rule_id == "images_missing"]
+    assert len(img_findings) == 1
+    assert img_findings[0].severity == Severity.HIGH
+    assert result.quality_score < 100
+
+
+def test_shopify_product_with_images_passes():
+    """Shopify products with at least one image should not be penalized."""
+    product = _make_shopify_product(image_count=1)
+    result = evaluate_product(product)
+    img_findings = [f for f in result.findings if f.rule_id == "images_missing"]
+    assert img_findings == []
+
+
+# ── Shopify status rules ─────────────────────────────────────────────────────
+
+def test_shopify_draft_product_penalized():
+    """Draft status should produce a low-severity finding."""
+    product = _make_shopify_product(status="DRAFT")
+    result = evaluate_product(product)
+    status_findings = [f for f in result.findings if f.rule_id == "status_draft"]
+    assert len(status_findings) == 1
+    assert status_findings[0].severity == Severity.LOW
+    assert result.quality_score < 100
+
+
+def test_shopify_archived_product_penalized():
+    """Archived status should produce a medium-severity finding."""
+    product = _make_shopify_product(status="ARCHIVED")
+    result = evaluate_product(product)
+    status_findings = [f for f in result.findings if f.rule_id == "status_archived"]
+    assert len(status_findings) == 1
+    assert status_findings[0].severity == Severity.MEDIUM
+    assert result.quality_score < 100
+
+
+def test_shopify_active_product_not_penalized_for_status():
+    """Active status should produce no status finding."""
+    product = _make_shopify_product(status="ACTIVE")
+    result = evaluate_product(product)
+    status_findings = [f for f in result.findings if "status" in f.rule_id]
+    assert status_findings == []
+
+
+# ── Shopify SEO title rule ───────────────────────────────────────────────────
+
+def test_shopify_missing_seo_title_penalized():
+    """Missing SEO title should be penalized."""
+    product = _make_shopify_product(seo_title=None)
+    result = evaluate_product(product)
+    seo_findings = [f for f in result.findings if f.rule_id == "seo_title_missing"]
+    assert len(seo_findings) == 1
+    assert result.quality_score < 100
+
+
+def test_shopify_empty_seo_title_penalized():
+    """Empty string SEO title should be penalized."""
+    product = _make_shopify_product(seo_title="")
+    result = evaluate_product(product)
+    seo_findings = [f for f in result.findings if f.rule_id == "seo_title_missing"]
+    assert len(seo_findings) == 1
+
+
+def test_shopify_present_seo_title_passes():
+    """A set SEO title should not be penalized."""
+    product = _make_shopify_product(seo_title="Great Kilim Rug for Sale")
+    result = evaluate_product(product)
+    seo_findings = [f for f in result.findings if f.rule_id == "seo_title_missing"]
+    assert seo_findings == []
+
+
+# ── Shopify SEO description rule ─────────────────────────────────────────────
+
+def test_shopify_missing_seo_description_penalized():
+    """Missing SEO description should be penalized."""
+    product = _make_shopify_product(seo_description=None)
+    result = evaluate_product(product)
+    seo_findings = [f for f in result.findings if f.rule_id == "seo_description_missing"]
+    assert len(seo_findings) == 1
+    assert result.quality_score < 100
+
+
+def test_shopify_empty_seo_description_penalized():
+    """Empty string SEO description should be penalized."""
+    product = _make_shopify_product(seo_description="")
+    result = evaluate_product(product)
+    seo_findings = [f for f in result.findings if f.rule_id == "seo_description_missing"]
+    assert len(seo_findings) == 1
+
+
+def test_shopify_present_seo_description_passes():
+    """A set SEO description should not be penalized."""
+    product = _make_shopify_product(seo_description="Shop authentic handwoven kilim rugs.")
+    result = evaluate_product(product)
+    seo_findings = [f for f in result.findings if f.rule_id == "seo_description_missing"]
+    assert seo_findings == []
+
+
+# ── Shopify score bounds ─────────────────────────────────────────────────────
+
+def test_shopify_score_never_below_zero():
+    """Score should never go below 0 even with all Shopify fields missing."""
+    product = _make_shopify_product(
+        current_title="",
+        description="",
+        current_tags=[],
+        brand=None,
+        category="Uncategorized",
+        image_count=0,
+        status="ARCHIVED",
+        seo_title=None,
+        seo_description=None,
+    )
+    result = evaluate_product(product)
+    assert result.quality_score >= 0
+
+
+def test_shopify_score_never_above_100():
+    """Score should never exceed 100."""
+    product = _make_shopify_product()
+    result = evaluate_product(product)
+    assert result.quality_score <= 100

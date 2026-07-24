@@ -252,13 +252,12 @@ def _map_shopify_product(raw: dict[str, Any]) -> Product:
     vendor = raw.get("vendor", "") or None
     tags = raw.get("tags", []) or []
     seo = raw.get("seo", {}) or {}
+    status = raw.get("status", "ACTIVE") or "ACTIVE"
+    total_inventory = raw.get("totalInventory", 0) or 0
+    images_edges = (raw.get("images", {}) or {}).get("edges", []) or []
 
     # Use plain description; fall back to stripped HTML
     description = description_plain if description_plain else _strip_html(description_html)
-
-    # Build SEO keywords from tags (Shopify's equivalent of SEO keywords)
-    # Tags serve as the discoverability mechanism on Shopify
-    seo_keywords = list(tags)  # tags double as keywords for Shopify products
 
     return Product(
         product_id=product_id,
@@ -269,8 +268,13 @@ def _map_shopify_product(raw: dict[str, Any]) -> Product:
         brand=vendor,
         current_title=title,
         current_bullet_points=[],  # Shopify does not have structured bullet points
-        current_seo_keywords=seo_keywords,
+        current_seo_keywords=[],   # Tags and SEO are separate on Shopify
         current_tags=tags,
+        status=status,
+        image_count=len(images_edges),
+        total_inventory=total_inventory,
+        seo_title=seo.get("title") if seo else None,
+        seo_description=seo.get("description") if seo else None,
     )
 
 

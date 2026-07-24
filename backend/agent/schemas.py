@@ -25,6 +25,12 @@ class Product:
     current_bullet_points: list[str] = field(default_factory=list)
     current_seo_keywords: list[str] = field(default_factory=list)
     current_tags: list[str] = field(default_factory=list)
+    # Shopify-specific fields (optional, default to None/0 for other marketplaces)
+    status: Optional[str] = None          # ACTIVE, DRAFT, ARCHIVED
+    image_count: int = 0
+    total_inventory: int = 0
+    seo_title: Optional[str] = None
+    seo_description: Optional[str] = None
 
 
 # ── Audit Finding ────────────────────────────────────────────────────────────

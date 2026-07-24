@@ -38,7 +38,7 @@ class TestMapShopifyProduct:
             "tags": ["kilim", "rug", "handwoven"],
             "totalInventory": 5,
             "seo": {"title": "SEO Title", "description": "SEO desc"},
-            "images": {"edges": [{"node": {"id": "img1"}}]},
+            "images": {"edges": [{"node": {"id": "img1"}}, {"node": {"id": "img2"}}]},
         }
         product = _map_shopify_product(raw)
 
@@ -50,8 +50,13 @@ class TestMapShopifyProduct:
         assert product.brand == "RojKilim"
         assert product.category == "Home & Kitchen"
         assert product.current_tags == ["kilim", "rug", "handwoven"]
-        assert product.current_seo_keywords == ["kilim", "rug", "handwoven"]
+        assert product.current_seo_keywords == []
         assert product.current_bullet_points == []
+        assert product.status == "ACTIVE"
+        assert product.image_count == 2
+        assert product.total_inventory == 5
+        assert product.seo_title == "SEO Title"
+        assert product.seo_description == "SEO desc"
 
     def test_maps_product_with_missing_fields(self):
         raw = {
@@ -75,6 +80,11 @@ class TestMapShopifyProduct:
         assert product.category == "Uncategorized"
         assert product.current_tags == []
         assert product.current_seo_keywords == []
+        assert product.status == "DRAFT"
+        assert product.image_count == 0
+        assert product.total_inventory == 0
+        assert product.seo_title is None
+        assert product.seo_description is None
 
     def test_falls_back_to_stripped_html_when_description_empty(self):
         raw = {
