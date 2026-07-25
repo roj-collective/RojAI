@@ -36,6 +36,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
               descriptionHtml
               status
               vendor
+              productType
               tags
               totalInventory
               seo {

@@ -17,6 +17,7 @@ interface ProductDetail {
   description: string;
   status: string;
   vendor: string;
+  productType: string;
   tags: string[];
   totalInventory: number;
   imageCount: number;
@@ -49,6 +50,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
           descriptionHtml
           status
           vendor
+          productType
           tags
           totalInventory
           createdAt
@@ -93,6 +95,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     description: raw.description,
     status: raw.status,
     vendor: raw.vendor,
+    productType: raw.productType,
     tags: raw.tags,
     totalInventory: raw.totalInventory,
     imageCount: raw.images.edges.length,
@@ -151,6 +154,11 @@ export default function ProductDetailPage() {
           <s-box padding="base" borderWidth="base" borderRadius="base">
             <s-text>
               <strong>Vendor:</strong> {product.vendor || "(not set)"}
+            </s-text>
+          </s-box>
+          <s-box padding="base" borderWidth="base" borderRadius="base">
+            <s-text>
+              <strong>Product type:</strong> {product.productType || "(not set)"}
             </s-text>
           </s-box>
           <s-box padding="base" borderWidth="base" borderRadius="base">

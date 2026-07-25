@@ -1,31 +1,29 @@
 /**
  * quality-scorer.ts — Client-side product quality evaluator.
  *
+ * Aligned with backend/agent/evaluator.py Shopify scoring rules.
  * Scores product listings on a 0-100 scale using deterministic rules.
  * No external services, no write operations.
  */
 
-// ── Configuration ───────────────────────────────────────────────────────────
+// ── Shopify scoring weights (sum to 100, matches backend evaluator) ─────────
 
-const TITLE_MAX_POINTS = 15;
-const DESCRIPTION_MAX_POINTS = 15;
-const TAGS_MAX_POINTS = 12;
-const IMAGES_MAX_POINTS = 12;
-const VENDOR_MAX_POINTS = 8;
-const VARIANTS_MAX_POINTS = 8;
-const STATUS_MAX_POINTS = 10;
-const SEO_TITLE_MAX_POINTS = 10;
-const SEO_DESCRIPTION_MAX_POINTS = 10;
+const TITLE_MAX_POINTS = 20;
+const DESCRIPTION_MAX_POINTS = 20;
+const TAGS_MAX_POINTS = 15;
+const IMAGES_MAX_POINTS = 15;
+const VENDOR_MAX_POINTS = 5;
+const CATEGORY_MAX_POINTS = 5;
+const STATUS_MAX_POINTS = 5;
+const SEO_TITLE_MAX_POINTS = 8;
+const SEO_DESCRIPTION_MAX_POINTS = 7;
+
+// ── Thresholds (matches backend evaluator) ──────────────────────────────────
 
 const TITLE_MIN_LENGTH = 50;
 const TITLE_MAX_LENGTH = 150;
 const DESCRIPTION_MIN_WORDS = 20;
 const REQUIRED_TAGS = 5;
-const REQUIRED_IMAGES = 2;
-const SEO_TITLE_MIN_LENGTH = 30;
-const SEO_TITLE_MAX_LENGTH = 70;
-const SEO_DESCRIPTION_MIN_LENGTH = 50;
-const SEO_DESCRIPTION_MAX_LENGTH = 160;
 
 export const RECOMMENDATION_THRESHOLD = 70;
 
@@ -55,6 +53,7 @@ export interface ScoredProduct {
   descriptionHtml: string;
   status: string;
   vendor: string;
+  productType: string;
   tags: string[];
   totalInventory: number;
   imageCount: number;
@@ -71,6 +70,7 @@ export interface ShopifyProduct {
   descriptionHtml: string;
   status: string;
   vendor: string;
+  productType: string;
   tags: string[];
   totalInventory: number;
   images: { edges: { node: { id: string } }[] };
@@ -90,7 +90,7 @@ export function evaluateProduct(product: ShopifyProduct): QualityResult {
     checkTags,
     checkImages,
     checkVendor,
-    checkVariants,
+    checkCategory,
     checkStatus,
     checkSeoTitle,
     checkSeoDescription,
@@ -129,6 +129,7 @@ export function scoreProduct(product: ShopifyProduct): ScoredProduct {
     descriptionHtml: product.descriptionHtml,
     status: product.status,
     vendor: product.vendor,
+    productType: product.productType,
     tags: product.tags,
     totalInventory: product.totalInventory,
     imageCount: product.images.edges.length,
@@ -149,14 +150,14 @@ export function getScoreBadge(score: number): {
   return { label: "Critical", tone: "critical" };
 }
 
-// ── Rule implementations ────────────────────────────────────────────────────
+// ── Rule implementations (matches backend evaluator.py) ─────────────────────
 
 function checkTitle(product: ShopifyProduct): Finding | null {
   const length = product.title.trim().length;
 
   if (length === 0) {
     return {
-      field: "title",
+      field: "current_title",
       severity: "critical",
       message: "Product has no title.",
       pointsDeducted: TITLE_MAX_POINTS,
@@ -165,19 +166,19 @@ function checkTitle(product: ShopifyProduct): Finding | null {
 
   if (length < TITLE_MIN_LENGTH) {
     return {
-      field: "title",
+      field: "current_title",
       severity: "high",
-      message: `Title is too short (${length} chars). Aim for ${TITLE_MIN_LENGTH}–${TITLE_MAX_LENGTH} characters.`,
+      message: `Title is too short (${length} chars). Aim for ${TITLE_MIN_LENGTH}-${TITLE_MAX_LENGTH} characters.`,
       pointsDeducted: TITLE_MAX_POINTS,
     };
   }
 
   if (length > TITLE_MAX_LENGTH) {
     return {
-      field: "title",
+      field: "current_title",
       severity: "medium",
-      message: `Title is too long (${length} chars). Keep under ${TITLE_MAX_LENGTH} characters.`,
-      pointsDeducted: Math.round(TITLE_MAX_POINTS / 2),
+      message: `Title is too long (${length} chars). Keep under ${TITLE_MAX_LENGTH} characters for best display.`,
+      pointsDeducted: Math.floor(TITLE_MAX_POINTS / 2),
     };
   }
 
@@ -201,7 +202,7 @@ function checkDescription(product: ShopifyProduct): Finding | null {
     return {
       field: "description",
       severity: "high",
-      message: `Description is too short (${wordCount} words). Aim for ${DESCRIPTION_MIN_WORDS}+ words.`,
+      message: `Description is too short (${wordCount} words). Aim for ${DESCRIPTION_MIN_WORDS}-500 words.`,
       pointsDeducted: DESCRIPTION_MAX_POINTS,
     };
   }
@@ -214,21 +215,19 @@ function checkTags(product: ShopifyProduct): Finding | null {
 
   if (count === 0) {
     return {
-      field: "tags",
+      field: "current_tags",
       severity: "high",
-      message: "No product tags defined. Add at least 5 for discoverability.",
+      message: "No product tags defined. Add at least 5 for categorisation.",
       pointsDeducted: TAGS_MAX_POINTS,
     };
   }
 
   if (count < REQUIRED_TAGS) {
-    const deduction = Math.round(
-      TAGS_MAX_POINTS * (1 - count / REQUIRED_TAGS),
-    );
+    const deduction = Math.round(TAGS_MAX_POINTS * (1 - count / REQUIRED_TAGS));
     return {
-      field: "tags",
+      field: "current_tags",
       severity: "medium",
-      message: `Only ${count} tag${count !== 1 ? "s" : ""}. Aim for at least ${REQUIRED_TAGS}.`,
+      message: `Only ${count} tags. Aim for at least ${REQUIRED_TAGS}.`,
       pointsDeducted: deduction,
     };
   }
@@ -243,17 +242,8 @@ function checkImages(product: ShopifyProduct): Finding | null {
     return {
       field: "images",
       severity: "high",
-      message: "No product images. Add at least 2 images.",
+      message: "No product images. Add at least one image to improve conversions.",
       pointsDeducted: IMAGES_MAX_POINTS,
-    };
-  }
-
-  if (count < REQUIRED_IMAGES) {
-    return {
-      field: "images",
-      severity: "medium",
-      message: `Only ${count} image. Add at least ${REQUIRED_IMAGES} images.`,
-      pointsDeducted: Math.round(IMAGES_MAX_POINTS / 2),
     };
   }
 
@@ -263,23 +253,23 @@ function checkImages(product: ShopifyProduct): Finding | null {
 function checkVendor(product: ShopifyProduct): Finding | null {
   if (!product.vendor || product.vendor.trim().length === 0) {
     return {
-      field: "vendor",
+      field: "brand",
       severity: "medium",
-      message: "No vendor/brand specified.",
+      message: "No vendor/brand specified. Set a vendor for better store organisation.",
       pointsDeducted: VENDOR_MAX_POINTS,
     };
   }
   return null;
 }
 
-function checkVariants(product: ShopifyProduct): Finding | null {
-  const count = product.variants.edges.length;
-  if (count === 0) {
+function checkCategory(product: ShopifyProduct): Finding | null {
+  const cat = (product.productType || "").trim();
+  if (!cat || cat === "Uncategorized") {
     return {
-      field: "variants",
-      severity: "high",
-      message: "Product has no variants (no pricing info).",
-      pointsDeducted: VARIANTS_MAX_POINTS,
+      field: "category",
+      severity: "medium",
+      message: "No product type set. Assign a product type for better organisation.",
+      pointsDeducted: CATEGORY_MAX_POINTS,
     };
   }
   return null;
@@ -291,7 +281,7 @@ function checkStatus(product: ShopifyProduct): Finding | null {
       field: "status",
       severity: "low",
       message: "Product is in DRAFT status and not visible to customers.",
-      pointsDeducted: 5,
+      pointsDeducted: STATUS_MAX_POINTS,
     };
   }
   if (product.status === "ARCHIVED") {
@@ -307,70 +297,26 @@ function checkStatus(product: ShopifyProduct): Finding | null {
 
 function checkSeoTitle(product: ShopifyProduct): Finding | null {
   const seoTitle = product.seo?.title || "";
-  const length = seoTitle.trim().length;
-
-  if (length === 0) {
+  if (seoTitle.trim().length === 0) {
     return {
       field: "seo_title",
       severity: "medium",
-      message:
-        "No SEO title set. Search engines will use the product title instead.",
+      message: "No SEO title set. Search engines will use the product title instead.",
       pointsDeducted: SEO_TITLE_MAX_POINTS,
     };
   }
-
-  if (length < SEO_TITLE_MIN_LENGTH) {
-    return {
-      field: "seo_title",
-      severity: "low",
-      message: `SEO title is short (${length} chars). Aim for ${SEO_TITLE_MIN_LENGTH}–${SEO_TITLE_MAX_LENGTH} characters.`,
-      pointsDeducted: Math.round(SEO_TITLE_MAX_POINTS / 2),
-    };
-  }
-
-  if (length > SEO_TITLE_MAX_LENGTH) {
-    return {
-      field: "seo_title",
-      severity: "low",
-      message: `SEO title is too long (${length} chars). Keep under ${SEO_TITLE_MAX_LENGTH} characters to avoid truncation.`,
-      pointsDeducted: Math.round(SEO_TITLE_MAX_POINTS / 3),
-    };
-  }
-
   return null;
 }
 
 function checkSeoDescription(product: ShopifyProduct): Finding | null {
   const seoDesc = product.seo?.description || "";
-  const length = seoDesc.trim().length;
-
-  if (length === 0) {
+  if (seoDesc.trim().length === 0) {
     return {
       field: "seo_description",
       severity: "medium",
-      message:
-        "No SEO description (meta description) set. This hurts search visibility.",
+      message: "No SEO description set. This reduces search result click-through rate.",
       pointsDeducted: SEO_DESCRIPTION_MAX_POINTS,
     };
   }
-
-  if (length < SEO_DESCRIPTION_MIN_LENGTH) {
-    return {
-      field: "seo_description",
-      severity: "low",
-      message: `SEO description is short (${length} chars). Aim for ${SEO_DESCRIPTION_MIN_LENGTH}–${SEO_DESCRIPTION_MAX_LENGTH} characters.`,
-      pointsDeducted: Math.round(SEO_DESCRIPTION_MAX_POINTS / 2),
-    };
-  }
-
-  if (length > SEO_DESCRIPTION_MAX_LENGTH) {
-    return {
-      field: "seo_description",
-      severity: "low",
-      message: `SEO description is too long (${length} chars). Keep under ${SEO_DESCRIPTION_MAX_LENGTH} characters.`,
-      pointsDeducted: Math.round(SEO_DESCRIPTION_MAX_POINTS / 3),
-    };
-  }
-
   return null;
 }

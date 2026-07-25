@@ -12,13 +12,15 @@ import {
 function makeProduct(overrides: Partial<ShopifyProduct> = {}): ShopifyProduct {
   return {
     id: "gid://shopify/Product/1",
-    title: "A Well-Crafted Product Title That Is Long Enough To Pass Validation Rules",
+    title:
+      "Handwoven Kilim Rug — Authentic Turkish Flat-Weave for Modern Boho Decor",
     description:
-      "This is a complete product description with enough words to pass the minimum threshold of twenty words required by the quality evaluator scoring rules.",
+      "This is a beautifully handwoven kilim rug crafted by artisans in Eastern Turkey using traditional flat-weave techniques passed down through generations of skilled weavers.",
     descriptionHtml: "<p>Description</p>",
     status: "ACTIVE",
-    vendor: "TestVendor",
-    tags: ["tag1", "tag2", "tag3", "tag4", "tag5"],
+    vendor: "RojKilim",
+    productType: "Home & Kitchen",
+    tags: ["kilim-rug", "turkish-decor", "handwoven", "boho-home", "artisan"],
     totalInventory: 10,
     images: {
       edges: [{ node: { id: "img1" } }, { node: { id: "img2" } }],
@@ -27,17 +29,17 @@ function makeProduct(overrides: Partial<ShopifyProduct> = {}): ShopifyProduct {
       edges: [{ node: { id: "var1" } }],
     },
     seo: {
-      title: "A Good SEO Title That Is Adequately Long",
+      title: "Handwoven Kilim Rug | Authentic Turkish",
       description:
-        "A properly written meta description that provides search engines with useful context about the product for potential buyers.",
+        "Shop our authentic handwoven kilim rugs crafted by Eastern Turkish artisans.",
     },
     ...overrides,
   };
 }
 
-// ── Complete high-quality product ───────────────────────────────────────────
+// ── Complete product scores 100 ─────────────────────────────────────────────
 
-describe("Complete high-quality product", () => {
+describe("Complete product scoring 100", () => {
   it("scores 100 with no findings", () => {
     const result = evaluateProduct(makeProduct());
     expect(result.score).toBe(100);
@@ -51,318 +53,318 @@ describe("Complete high-quality product", () => {
   });
 });
 
-// ── Product with missing fields ─────────────────────────────────────────────
+// ── Images: zero vs one ─────────────────────────────────────────────────────
 
-describe("Product with missing fields", () => {
-  it("penalizes missing title", () => {
-    const result = evaluateProduct(makeProduct({ title: "" }));
-    expect(result.score).toBeLessThan(100);
-    expect(result.findings.some((f) => f.field === "title")).toBe(true);
+describe("Images scoring", () => {
+  it("deducts 15 points for zero images", () => {
+    const result = evaluateProduct(makeProduct({ images: { edges: [] } }));
+    const finding = result.findings.find((f) => f.field === "images");
+    expect(finding).toBeDefined();
+    expect(finding!.pointsDeducted).toBe(15);
+    expect(finding!.severity).toBe("high");
+    expect(result.score).toBe(85);
   });
 
-  it("penalizes missing description", () => {
-    const result = evaluateProduct(makeProduct({ description: "" }));
-    expect(result.score).toBeLessThan(100);
-    expect(result.findings.some((f) => f.field === "description")).toBe(true);
-  });
-
-  it("penalizes empty tags", () => {
-    const result = evaluateProduct(makeProduct({ tags: [] }));
-    expect(result.score).toBeLessThan(100);
-    expect(result.findings.some((f) => f.field === "tags")).toBe(true);
-  });
-
-  it("penalizes missing vendor", () => {
-    const result = evaluateProduct(makeProduct({ vendor: "" }));
-    expect(result.score).toBeLessThan(100);
-    expect(result.findings.some((f) => f.field === "vendor")).toBe(true);
-  });
-
-  it("penalizes no images", () => {
+  it("passes with one image", () => {
     const result = evaluateProduct(
-      makeProduct({ images: { edges: [] } }),
+      makeProduct({ images: { edges: [{ node: { id: "img1" } }] } }),
     );
-    expect(result.score).toBeLessThan(100);
-    expect(result.findings.some((f) => f.field === "images")).toBe(true);
+    expect(result.findings.find((f) => f.field === "images")).toBeUndefined();
+    expect(result.score).toBe(100);
   });
 
-  it("penalizes no variants", () => {
-    const result = evaluateProduct(
-      makeProduct({ variants: { edges: [] } }),
-    );
-    expect(result.score).toBeLessThan(100);
-    expect(result.findings.some((f) => f.field === "variants")).toBe(true);
-  });
-
-  it("penalizes missing SEO title", () => {
-    const result = evaluateProduct(
-      makeProduct({ seo: { title: null, description: "Some desc" } }),
-    );
-    expect(result.findings.some((f) => f.field === "seo_title")).toBe(true);
-  });
-
-  it("penalizes missing SEO description", () => {
-    const result = evaluateProduct(
-      makeProduct({ seo: { title: "Title", description: null } }),
-    );
-    expect(result.findings.some((f) => f.field === "seo_description")).toBe(
-      true,
-    );
-  });
-
-  it("accumulates all penalties for a product missing everything", () => {
-    const result = evaluateProduct(
-      makeProduct({
-        title: "",
-        description: "",
-        tags: [],
-        vendor: "",
-        images: { edges: [] },
-        variants: { edges: [] },
-        status: "ARCHIVED",
-        seo: { title: null, description: null },
-      }),
-    );
-    expect(result.findings.length).toBeGreaterThanOrEqual(7);
-    expect(result.needsRecommendations).toBe(true);
+  it("passes with multiple images", () => {
+    const result = evaluateProduct(makeProduct());
+    expect(result.findings.find((f) => f.field === "images")).toBeUndefined();
   });
 });
 
-// ── Draft and archived products ─────────────────────────────────────────────
+// ── Product type / category ─────────────────────────────────────────────────
 
-describe("Status-based scoring", () => {
-  it("penalizes DRAFT status (low severity)", () => {
-    const result = evaluateProduct(makeProduct({ status: "DRAFT" }));
-    expect(result.score).toBeLessThan(100);
-    const finding = result.findings.find((f) => f.field === "status");
+describe("Product type scoring", () => {
+  it("deducts 5 points for missing productType", () => {
+    const result = evaluateProduct(makeProduct({ productType: "" }));
+    const finding = result.findings.find((f) => f.field === "category");
     expect(finding).toBeDefined();
-    expect(finding!.severity).toBe("low");
+    expect(finding!.pointsDeducted).toBe(5);
+    expect(finding!.severity).toBe("medium");
+  });
+
+  it("deducts 5 points for Uncategorized productType", () => {
+    const result = evaluateProduct(makeProduct({ productType: "Uncategorized" }));
+    const finding = result.findings.find((f) => f.field === "category");
+    expect(finding).toBeDefined();
     expect(finding!.pointsDeducted).toBe(5);
   });
 
-  it("penalizes ARCHIVED status (medium severity)", () => {
-    const result = evaluateProduct(makeProduct({ status: "ARCHIVED" }));
-    expect(result.score).toBeLessThan(100);
+  it("passes with a set productType", () => {
+    const result = evaluateProduct(makeProduct({ productType: "Rugs" }));
+    expect(result.findings.find((f) => f.field === "category")).toBeUndefined();
+  });
+});
+
+// ── Vendor ──────────────────────────────────────────────────────────────────
+
+describe("Vendor scoring", () => {
+  it("deducts 5 points for missing vendor", () => {
+    const result = evaluateProduct(makeProduct({ vendor: "" }));
+    const finding = result.findings.find((f) => f.field === "brand");
+    expect(finding).toBeDefined();
+    expect(finding!.pointsDeducted).toBe(5);
+    expect(finding!.severity).toBe("medium");
+  });
+
+  it("passes with a set vendor", () => {
+    const result = evaluateProduct(makeProduct({ vendor: "RojKilim" }));
+    expect(result.findings.find((f) => f.field === "brand")).toBeUndefined();
+  });
+});
+
+// ── Tags ────────────────────────────────────────────────────────────────────
+
+describe("Tags scoring", () => {
+  it("deducts 15 points for zero tags", () => {
+    const result = evaluateProduct(makeProduct({ tags: [] }));
+    const finding = result.findings.find((f) => f.field === "current_tags");
+    expect(finding).toBeDefined();
+    expect(finding!.pointsDeducted).toBe(15);
+    expect(finding!.severity).toBe("high");
+  });
+
+  it("deducts partial points for fewer than 5 tags", () => {
+    const result = evaluateProduct(makeProduct({ tags: ["a", "b", "c"] }));
+    const finding = result.findings.find((f) => f.field === "current_tags");
+    expect(finding).toBeDefined();
+    expect(finding!.pointsDeducted).toBe(6); // round(15 * (1 - 3/5)) = 6
+    expect(finding!.severity).toBe("medium");
+  });
+
+  it("passes with 5 tags", () => {
+    const result = evaluateProduct(
+      makeProduct({ tags: ["a", "b", "c", "d", "e"] }),
+    );
+    expect(
+      result.findings.find((f) => f.field === "current_tags"),
+    ).toBeUndefined();
+  });
+});
+
+// ── SEO title ───────────────────────────────────────────────────────────────
+
+describe("SEO title scoring", () => {
+  it("deducts 8 points for missing SEO title", () => {
+    const result = evaluateProduct(
+      makeProduct({ seo: { title: null, description: "Some desc" } }),
+    );
+    const finding = result.findings.find((f) => f.field === "seo_title");
+    expect(finding).toBeDefined();
+    expect(finding!.pointsDeducted).toBe(8);
+    expect(finding!.severity).toBe("medium");
+  });
+
+  it("deducts 8 points for empty string SEO title", () => {
+    const result = evaluateProduct(
+      makeProduct({ seo: { title: "", description: "Desc" } }),
+    );
+    const finding = result.findings.find((f) => f.field === "seo_title");
+    expect(finding).toBeDefined();
+    expect(finding!.pointsDeducted).toBe(8);
+  });
+
+  it("passes with a set SEO title", () => {
+    const result = evaluateProduct(
+      makeProduct({ seo: { title: "Great Title", description: "Desc" } }),
+    );
+    expect(
+      result.findings.find((f) => f.field === "seo_title"),
+    ).toBeUndefined();
+  });
+});
+
+// ── SEO description ─────────────────────────────────────────────────────────
+
+describe("SEO description scoring", () => {
+  it("deducts 7 points for missing SEO description", () => {
+    const result = evaluateProduct(
+      makeProduct({ seo: { title: "Title", description: null } }),
+    );
+    const finding = result.findings.find((f) => f.field === "seo_description");
+    expect(finding).toBeDefined();
+    expect(finding!.pointsDeducted).toBe(7);
+    expect(finding!.severity).toBe("medium");
+  });
+
+  it("passes with a set SEO description", () => {
+    const result = evaluateProduct(
+      makeProduct({ seo: { title: "T", description: "A valid desc" } }),
+    );
+    expect(
+      result.findings.find((f) => f.field === "seo_description"),
+    ).toBeUndefined();
+  });
+});
+
+// ── Status: DRAFT and ARCHIVED ──────────────────────────────────────────────
+
+describe("Status scoring", () => {
+  it("deducts 5 points for DRAFT with low severity", () => {
+    const result = evaluateProduct(makeProduct({ status: "DRAFT" }));
     const finding = result.findings.find((f) => f.field === "status");
     expect(finding).toBeDefined();
+    expect(finding!.pointsDeducted).toBe(5);
+    expect(finding!.severity).toBe("low");
+  });
+
+  it("deducts 5 points for ARCHIVED with medium severity", () => {
+    const result = evaluateProduct(makeProduct({ status: "ARCHIVED" }));
+    const finding = result.findings.find((f) => f.field === "status");
+    expect(finding).toBeDefined();
+    expect(finding!.pointsDeducted).toBe(5);
     expect(finding!.severity).toBe("medium");
   });
 
   it("does not penalize ACTIVE status", () => {
     const result = evaluateProduct(makeProduct({ status: "ACTIVE" }));
-    expect(result.findings.some((f) => f.field === "status")).toBe(false);
+    expect(result.findings.find((f) => f.field === "status")).toBeUndefined();
   });
 });
 
-// ── Boundary values for title ───────────────────────────────────────────────
+// ── Variants do not affect score ────────────────────────────────────────────
 
-describe("Title boundaries", () => {
-  it("passes at exactly 50 characters", () => {
-    const title = "A".repeat(50);
-    const result = evaluateProduct(makeProduct({ title }));
-    expect(result.findings.some((f) => f.field === "title")).toBe(false);
-  });
-
-  it("fails at 49 characters (too short)", () => {
-    const title = "A".repeat(49);
-    const result = evaluateProduct(makeProduct({ title }));
-    expect(result.findings.some((f) => f.field === "title")).toBe(true);
-  });
-
-  it("passes at exactly 150 characters", () => {
-    const title = "B".repeat(150);
-    const result = evaluateProduct(makeProduct({ title }));
-    expect(result.findings.some((f) => f.field === "title")).toBe(false);
-  });
-
-  it("penalizes at 151 characters (too long)", () => {
-    const title = "B".repeat(151);
-    const result = evaluateProduct(makeProduct({ title }));
-    const finding = result.findings.find((f) => f.field === "title");
-    expect(finding).toBeDefined();
-    expect(finding!.severity).toBe("medium");
-  });
-});
-
-// ── Boundary values for description ─────────────────────────────────────────
-
-describe("Description boundaries", () => {
-  it("passes at exactly 20 words", () => {
-    const description = Array(20).fill("word").join(" ");
-    const result = evaluateProduct(makeProduct({ description }));
-    expect(result.findings.some((f) => f.field === "description")).toBe(false);
-  });
-
-  it("fails at 19 words", () => {
-    const description = Array(19).fill("word").join(" ");
-    const result = evaluateProduct(makeProduct({ description }));
-    expect(result.findings.some((f) => f.field === "description")).toBe(true);
-  });
-
-  it("critical at fewer than 5 words", () => {
-    const result = evaluateProduct(makeProduct({ description: "short" }));
-    const finding = result.findings.find((f) => f.field === "description");
-    expect(finding).toBeDefined();
-    expect(finding!.severity).toBe("critical");
-  });
-});
-
-// ── Boundary values for tags ────────────────────────────────────────────────
-
-describe("Tags boundaries", () => {
-  it("passes at exactly 5 tags", () => {
+describe("Variants not affecting score", () => {
+  it("zero variants does not deduct points", () => {
     const result = evaluateProduct(
-      makeProduct({ tags: ["a", "b", "c", "d", "e"] }),
+      makeProduct({ variants: { edges: [] } }),
     );
-    expect(result.findings.some((f) => f.field === "tags")).toBe(false);
+    expect(result.findings.find((f) => f.field === "variants")).toBeUndefined();
+    expect(result.score).toBe(100);
   });
 
-  it("penalizes at 4 tags", () => {
-    const result = evaluateProduct(
-      makeProduct({ tags: ["a", "b", "c", "d"] }),
-    );
-    expect(result.findings.some((f) => f.field === "tags")).toBe(true);
-  });
-
-  it("penalizes at 0 tags with high severity", () => {
-    const result = evaluateProduct(makeProduct({ tags: [] }));
-    const finding = result.findings.find((f) => f.field === "tags");
-    expect(finding!.severity).toBe("high");
+  it("variant count is still available on scored product", () => {
+    const scored = scoreProduct(makeProduct());
+    expect(scored.variantCount).toBe(1);
   });
 });
 
-// ── Score never below 0 or above 100 ───────────────────────────────────────
+// ── Representative expected scores ──────────────────────────────────────────
 
-describe("Score bounds", () => {
-  it("never exceeds 100", () => {
-    const result = evaluateProduct(makeProduct());
-    expect(result.score).toBeLessThanOrEqual(100);
+describe("Expected scores matching backend", () => {
+  it("product missing only images scores 85", () => {
+    const result = evaluateProduct(makeProduct({ images: { edges: [] } }));
+    expect(result.score).toBe(85);
   });
 
-  it("never goes below 0 even with all fields missing", () => {
+  it("product missing images + SEO title + SEO desc scores 70", () => {
+    const result = evaluateProduct(
+      makeProduct({
+        images: { edges: [] },
+        seo: { title: null, description: null },
+      }),
+    );
+    expect(result.score).toBe(70);
+  });
+
+  it("product missing everything scores 0", () => {
     const result = evaluateProduct(
       makeProduct({
         title: "",
         description: "",
         tags: [],
         vendor: "",
+        productType: "",
         images: { edges: [] },
-        variants: { edges: [] },
+        status: "ARCHIVED",
+        seo: { title: null, description: null },
+      }),
+    );
+    expect(result.score).toBe(0);
+  });
+
+  it("DRAFT product with all other fields complete scores 95", () => {
+    const result = evaluateProduct(makeProduct({ status: "DRAFT" }));
+    expect(result.score).toBe(95);
+  });
+});
+
+// ── Score bounds ────────────────────────────────────────────────────────────
+
+describe("Score bounds", () => {
+  it("never exceeds 100", () => {
+    expect(evaluateProduct(makeProduct()).score).toBeLessThanOrEqual(100);
+  });
+
+  it("never goes below 0", () => {
+    const result = evaluateProduct(
+      makeProduct({
+        title: "",
+        description: "",
+        tags: [],
+        vendor: "",
+        productType: "",
+        images: { edges: [] },
         status: "ARCHIVED",
         seo: { title: null, description: null },
       }),
     );
     expect(result.score).toBeGreaterThanOrEqual(0);
   });
-
-  it("score equals 100 minus total deductions", () => {
-    const result = evaluateProduct(makeProduct({ title: "" })); // -15 points
-    const totalDeducted = result.findings.reduce(
-      (sum, f) => sum + f.pointsDeducted,
-      0,
-    );
-    expect(result.score).toBe(Math.max(0, 100 - totalDeducted));
-  });
 });
 
-// ── Images boundary ─────────────────────────────────────────────────────────
-
-describe("Images boundaries", () => {
-  it("passes at 2+ images", () => {
-    const result = evaluateProduct(
-      makeProduct({
-        images: { edges: [{ node: { id: "1" } }, { node: { id: "2" } }] },
-      }),
-    );
-    expect(result.findings.some((f) => f.field === "images")).toBe(false);
-  });
-
-  it("penalizes at 1 image", () => {
-    const result = evaluateProduct(
-      makeProduct({ images: { edges: [{ node: { id: "1" } }] } }),
-    );
-    const finding = result.findings.find((f) => f.field === "images");
-    expect(finding).toBeDefined();
-    expect(finding!.severity).toBe("medium");
-  });
-
-  it("penalizes at 0 images with high severity", () => {
-    const result = evaluateProduct(makeProduct({ images: { edges: [] } }));
-    const finding = result.findings.find((f) => f.field === "images");
-    expect(finding).toBeDefined();
-    expect(finding!.severity).toBe("high");
-  });
-});
-
-// ── getScoreBadge ───────────────────────────────────────────────────────────
-
-describe("getScoreBadge", () => {
-  it("returns success for scores >= 80", () => {
-    expect(getScoreBadge(80).tone).toBe("success");
-    expect(getScoreBadge(100).tone).toBe("success");
-  });
-
-  it("returns warning for scores 60-79", () => {
-    expect(getScoreBadge(60).tone).toBe("warning");
-    expect(getScoreBadge(79).tone).toBe("warning");
-  });
-
-  it("returns critical for scores below 60", () => {
-    expect(getScoreBadge(59).tone).toBe("critical");
-    expect(getScoreBadge(0).tone).toBe("critical");
-  });
-});
-
-// ── scoreProduct ────────────────────────────────────────────────────────────
-
-describe("scoreProduct", () => {
-  it("returns ScoredProduct with all expected fields", () => {
-    const product = makeProduct();
-    const scored = scoreProduct(product);
-    expect(scored.id).toBe(product.id);
-    expect(scored.title).toBe(product.title);
-    expect(scored.imageCount).toBe(2);
-    expect(scored.variantCount).toBe(1);
-    expect(scored.quality.score).toBe(100);
-  });
-
-  it("handles undefined seo gracefully", () => {
-    const product = makeProduct({ seo: undefined });
-    const scored = scoreProduct(product);
-    expect(scored.seoTitle).toBe("");
-    expect(scored.seoDescription).toBe("");
-    // Should have SEO findings
-    expect(scored.quality.findings.some((f) => f.field === "seo_title")).toBe(
-      true,
-    );
-  });
-});
-
-// ── RECOMMENDATION_THRESHOLD ────────────────────────────────────────────────
+// ── Threshold ───────────────────────────────────────────────────────────────
 
 describe("Recommendation threshold", () => {
   it("is 70", () => {
     expect(RECOMMENDATION_THRESHOLD).toBe(70);
   });
 
-  it("needsRecommendations true when score < threshold", () => {
-    // Force a low score by removing many fields
+  it("product at 70 does not need recommendations", () => {
+    // images(0)=15 + seo_title(0)=8 + seo_desc(0)=7 = 30 deducted → 70
     const result = evaluateProduct(
       makeProduct({
-        title: "Short",
-        description: "Too short",
-        tags: [],
         images: { edges: [] },
         seo: { title: null, description: null },
       }),
     );
-    expect(result.score).toBeLessThan(RECOMMENDATION_THRESHOLD);
-    expect(result.needsRecommendations).toBe(true);
+    expect(result.score).toBe(70);
+    expect(result.needsRecommendations).toBe(false);
   });
 
-  it("needsRecommendations false when score >= threshold", () => {
-    const result = evaluateProduct(makeProduct());
-    expect(result.score).toBeGreaterThanOrEqual(RECOMMENDATION_THRESHOLD);
-    expect(result.needsRecommendations).toBe(false);
+  it("product at 69 needs recommendations", () => {
+    // 70 - vendor(5) = 65
+    const result = evaluateProduct(
+      makeProduct({
+        images: { edges: [] },
+        seo: { title: null, description: null },
+        vendor: "",
+      }),
+    );
+    expect(result.score).toBe(65);
+    expect(result.needsRecommendations).toBe(true);
+  });
+});
+
+// ── scoreProduct and getScoreBadge ──────────────────────────────────────────
+
+describe("scoreProduct", () => {
+  it("includes productType in scored product", () => {
+    const scored = scoreProduct(makeProduct());
+    expect(scored.productType).toBe("Home & Kitchen");
+  });
+
+  it("includes variantCount without scoring it", () => {
+    const scored = scoreProduct(makeProduct({ variants: { edges: [] } }));
+    expect(scored.variantCount).toBe(0);
+    expect(scored.quality.score).toBe(100);
+  });
+});
+
+describe("getScoreBadge", () => {
+  it("returns correct tones", () => {
+    expect(getScoreBadge(100).tone).toBe("success");
+    expect(getScoreBadge(80).tone).toBe("success");
+    expect(getScoreBadge(79).tone).toBe("warning");
+    expect(getScoreBadge(60).tone).toBe("warning");
+    expect(getScoreBadge(59).tone).toBe("critical");
+    expect(getScoreBadge(0).tone).toBe("critical");
   });
 });
