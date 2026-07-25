@@ -1,0 +1,26 @@
+# Local development PostgreSQL for RojAI Shopify app session storage.
+# Start: docker compose up -d
+# Stop:  docker compose down
+# Reset: docker compose down -v (deletes data volume)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: rojai-postgres
+    environment:
+      POSTGRES_USER: rojai
+      POSTGRES_PASSWORD: rojai_dev
+      POSTGRES_DB: rojai_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - rojai_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rojai -d rojai_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  rojai_pgdata:
+    name: rojai_pgdata
