@@ -4,12 +4,13 @@ import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import {
   evaluateProduct,
-  getScoreBadge,
   RECOMMENDATION_THRESHOLD,
   type ShopifyProduct,
   type Finding,
-  type BadgeTone,
 } from "../lib/quality-scorer";
+import { ScoreBadge } from "../components/ScoreBadge";
+import { FindingsList } from "../components/FindingsList";
+import { ProductDetails } from "../components/ProductDetails";
 
 interface ProductDetail {
   id: string;
@@ -114,24 +115,34 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   } satisfies LoaderData;
 };
 
-function findingTone(severity: string): BadgeTone {
-  if (severity === "critical" || severity === "high") return "critical";
-  if (severity === "medium") return "warning";
-  return "info";
-}
-
 export default function ProductDetailPage() {
   const { product, score, findings, needsRecommendations } =
     useLoaderData<LoaderData>();
-  const badge = getScoreBadge(score);
+
+  const detailFields = [
+    { label: "Status", value: product.status },
+    { label: "Vendor", value: product.vendor || "(not set)" },
+    { label: "Product type", value: product.productType || "(not set)" },
+    {
+      label: "Tags",
+      value: product.tags.length > 0 ? product.tags.join(", ") : "(none)",
+    },
+    { label: "Images", value: product.imageCount },
+    { label: "Variants", value: product.variantCount },
+    { label: "Inventory", value: product.totalInventory },
+    { label: "Description", value: product.description || "(empty)" },
+    { label: "SEO title", value: product.seoTitle || "(not set)" },
+    {
+      label: "SEO description",
+      value: product.seoDescription || "(not set)",
+    },
+  ];
 
   return (
     <s-page heading={product.title}>
       <s-section heading="Product quality score">
         <s-stack direction="inline" gap="base">
-          <s-badge tone={badge.tone}>
-            {score}/100 — {badge.label}
-          </s-badge>
+          <ScoreBadge score={score} showLabel />
           {needsRecommendations && (
             <s-text>
               Below threshold ({RECOMMENDATION_THRESHOLD}). Recommendations
@@ -145,96 +156,10 @@ export default function ProductDetailPage() {
       </s-section>
 
       <s-section heading="Product details">
-        <s-stack direction="block" gap="base">
-          <s-box padding="base" borderWidth="base" borderRadius="base">
-            <s-text>
-              <strong>Status:</strong> {product.status}
-            </s-text>
-          </s-box>
-          <s-box padding="base" borderWidth="base" borderRadius="base">
-            <s-text>
-              <strong>Vendor:</strong> {product.vendor || "(not set)"}
-            </s-text>
-          </s-box>
-          <s-box padding="base" borderWidth="base" borderRadius="base">
-            <s-text>
-              <strong>Product type:</strong> {product.productType || "(not set)"}
-            </s-text>
-          </s-box>
-          <s-box padding="base" borderWidth="base" borderRadius="base">
-            <s-text>
-              <strong>Tags:</strong>{" "}
-              {product.tags.length > 0 ? product.tags.join(", ") : "(none)"}
-            </s-text>
-          </s-box>
-          <s-box padding="base" borderWidth="base" borderRadius="base">
-            <s-text>
-              <strong>Images:</strong> {product.imageCount}
-            </s-text>
-          </s-box>
-          <s-box padding="base" borderWidth="base" borderRadius="base">
-            <s-text>
-              <strong>Variants:</strong> {product.variantCount}
-            </s-text>
-          </s-box>
-          <s-box padding="base" borderWidth="base" borderRadius="base">
-            <s-text>
-              <strong>Inventory:</strong> {product.totalInventory}
-            </s-text>
-          </s-box>
-          <s-box padding="base" borderWidth="base" borderRadius="base">
-            <s-text>
-              <strong>Description:</strong>{" "}
-              {product.description || "(empty)"}
-            </s-text>
-          </s-box>
-          <s-box padding="base" borderWidth="base" borderRadius="base">
-            <s-text>
-              <strong>SEO title:</strong>{" "}
-              {product.seoTitle || "(not set)"}
-            </s-text>
-          </s-box>
-          <s-box padding="base" borderWidth="base" borderRadius="base">
-            <s-text>
-              <strong>SEO description:</strong>{" "}
-              {product.seoDescription || "(not set)"}
-            </s-text>
-          </s-box>
-        </s-stack>
+        <ProductDetails fields={detailFields} />
       </s-section>
 
-      {findings.length > 0 && (
-        <s-section heading={`Findings (${findings.length})`}>
-          <s-stack direction="block" gap="base">
-            {findings.map((finding, i) => (
-              <s-box
-                key={i}
-                padding="base"
-                borderWidth="base"
-                borderRadius="base"
-              >
-                <s-stack direction="inline" gap="base">
-                  <s-badge tone={findingTone(finding.severity)}>
-                    {finding.severity.toUpperCase()}
-                  </s-badge>
-                  <s-text>
-                    <strong>{finding.field}:</strong> {finding.message} (−
-                    {finding.pointsDeducted} pts)
-                  </s-text>
-                </s-stack>
-              </s-box>
-            ))}
-          </s-stack>
-        </s-section>
-      )}
-
-      {findings.length === 0 && (
-        <s-section heading="Findings">
-          <s-paragraph>
-            No quality issues found. This product listing meets all criteria.
-          </s-paragraph>
-        </s-section>
-      )}
+      <FindingsList findings={findings} />
 
       <s-section slot="aside" heading="Metadata">
         <s-paragraph>

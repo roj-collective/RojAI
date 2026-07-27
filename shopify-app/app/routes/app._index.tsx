@@ -5,11 +5,17 @@ import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import {
   scoreProduct,
-  getScoreBadge,
   RECOMMENDATION_THRESHOLD,
   type ShopifyProduct,
   type ScoredProduct,
 } from "../lib/quality-scorer";
+import { MetricCard, MetricRow } from "../components/MetricCard";
+import { ProductCard } from "../components/ProductCard";
+import {
+  FilterBar,
+  type StatusFilter,
+  type QualityFilter,
+} from "../components/FilterBar";
 
 interface LoaderData {
   products: ScoredProduct[];
@@ -71,8 +77,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const products = rawProducts.map(scoreProduct);
 
-  const good = products.filter((p) => p.quality.score >= RECOMMENDATION_THRESHOLD).length;
-  const needsAttention = products.filter((p) => p.quality.score < RECOMMENDATION_THRESHOLD).length;
+  const good = products.filter(
+    (p) => p.quality.score >= RECOMMENDATION_THRESHOLD,
+  ).length;
+  const needsAttention = products.filter(
+    (p) => p.quality.score < RECOMMENDATION_THRESHOLD,
+  ).length;
   const averageScore =
     products.length > 0
       ? Math.round(
@@ -87,9 +97,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   } satisfies LoaderData;
 };
 
-type StatusFilter = "ALL" | "ACTIVE" | "DRAFT" | "ARCHIVED";
-type QualityFilter = "ALL" | "GOOD" | "NEEDS_ATTENTION";
-
 export default function Dashboard() {
   const { products, summary } = useLoaderData<LoaderData>();
 
@@ -102,9 +109,7 @@ export default function Dashboard() {
 
     if (search.trim()) {
       const query = search.toLowerCase();
-      result = result.filter((p) =>
-        p.title.toLowerCase().includes(query),
-      );
+      result = result.filter((p) => p.title.toLowerCase().includes(query));
     }
 
     if (statusFilter !== "ALL") {
@@ -112,16 +117,23 @@ export default function Dashboard() {
     }
 
     if (qualityFilter === "GOOD") {
-      result = result.filter((p) => p.quality.score >= RECOMMENDATION_THRESHOLD);
+      result = result.filter(
+        (p) => p.quality.score >= RECOMMENDATION_THRESHOLD,
+      );
     } else if (qualityFilter === "NEEDS_ATTENTION") {
-      result = result.filter((p) => p.quality.score < RECOMMENDATION_THRESHOLD);
+      result = result.filter(
+        (p) => p.quality.score < RECOMMENDATION_THRESHOLD,
+      );
     }
 
     result.sort((a, b) => a.quality.score - b.quality.score);
     return result;
   }, [products, search, statusFilter, qualityFilter]);
 
-  const hasFilters = search.trim() !== "" || statusFilter !== "ALL" || qualityFilter !== "ALL";
+  const hasFilters =
+    search.trim() !== "" ||
+    statusFilter !== "ALL" ||
+    qualityFilter !== "ALL";
 
   const resetFilters = () => {
     setSearch("");
@@ -132,80 +144,27 @@ export default function Dashboard() {
   return (
     <s-page heading="RojAI Agent — Product Quality Dashboard">
       <s-section heading="Overview">
-        <s-stack direction="inline" gap="base">
-          <s-box padding="base" borderWidth="base" borderRadius="base">
-            <s-text><strong>{summary.total}</strong> products</s-text>
-          </s-box>
-          <s-box padding="base" borderWidth="base" borderRadius="base">
-            <s-text><strong>{summary.averageScore}</strong>/100 avg quality</s-text>
-          </s-box>
-          <s-box padding="base" borderWidth="base" borderRadius="base">
-            <s-text><strong>{summary.good}</strong> good</s-text>
-          </s-box>
-          <s-box padding="base" borderWidth="base" borderRadius="base">
-            <s-text><strong>{summary.needsAttention}</strong> need attention</s-text>
-          </s-box>
-        </s-stack>
+        <MetricRow>
+          <MetricCard value={summary.total} label="products" />
+          <MetricCard value={`${summary.averageScore}/100`} label="avg quality" />
+          <MetricCard value={summary.good} label="good" />
+          <MetricCard value={summary.needsAttention} label="need attention" />
+        </MetricRow>
       </s-section>
 
       <s-section heading="Filters">
-        <s-stack direction="block" gap="base">
-          <s-box>
-            <label>
-              <s-text>Search by title: </s-text>
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Type to filter products..."
-                style={{ padding: "6px 10px", borderRadius: "4px", border: "1px solid #ccc", width: "300px" }}
-              />
-            </label>
-          </s-box>
-          <s-stack direction="inline" gap="base">
-            <s-box>
-              <label>
-                <s-text>Status: </s-text>
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-                  style={{ padding: "6px 10px", borderRadius: "4px", border: "1px solid #ccc" }}
-                >
-                  <option value="ALL">All statuses</option>
-                  <option value="ACTIVE">Active</option>
-                  <option value="DRAFT">Draft</option>
-                  <option value="ARCHIVED">Archived</option>
-                </select>
-              </label>
-            </s-box>
-            <s-box>
-              <label>
-                <s-text>Quality: </s-text>
-                <select
-                  value={qualityFilter}
-                  onChange={(e) => setQualityFilter(e.target.value as QualityFilter)}
-                  style={{ padding: "6px 10px", borderRadius: "4px", border: "1px solid #ccc" }}
-                >
-                  <option value="ALL">All quality levels</option>
-                  <option value="GOOD">Good (≥{RECOMMENDATION_THRESHOLD})</option>
-                  <option value="NEEDS_ATTENTION">Needs attention (&lt;{RECOMMENDATION_THRESHOLD})</option>
-                </select>
-              </label>
-            </s-box>
-            {hasFilters && (
-              <s-box>
-                <s-button variant="tertiary" onClick={resetFilters}>
-                  Clear filters
-                </s-button>
-              </s-box>
-            )}
-          </s-stack>
-          {hasFilters && (
-            <s-text>
-              Showing {filteredProducts.length} of {products.length} products
-            </s-text>
-          )}
-        </s-stack>
+        <FilterBar
+          search={search}
+          onSearchChange={setSearch}
+          statusFilter={statusFilter}
+          onStatusChange={setStatusFilter}
+          qualityFilter={qualityFilter}
+          onQualityChange={setQualityFilter}
+          hasFilters={hasFilters}
+          onClear={resetFilters}
+          filteredCount={filteredProducts.length}
+          totalCount={products.length}
+        />
       </s-section>
 
       <s-section heading="Product Listings">
@@ -217,40 +176,9 @@ export default function Dashboard() {
           </s-paragraph>
         ) : (
           <s-stack direction="block" gap="base">
-            {filteredProducts.map((product) => {
-              const badge = getScoreBadge(product.quality.score);
-              return (
-                <s-box
-                  key={product.id}
-                  padding="base"
-                  borderWidth="base"
-                  borderRadius="base"
-                >
-                  <s-stack direction="inline" gap="base">
-                    <s-box>
-                      <s-badge tone={badge.tone}>
-                        {product.quality.score}/100
-                      </s-badge>
-                    </s-box>
-                    <s-box>
-                      <s-link href={`/app/products/${encodeURIComponent(product.id)}`}>
-                        {product.title}
-                      </s-link>
-                      <s-text>
-                        {" "}— {product.status} | {product.imageCount} images |{" "}
-                        {product.tags.length} tags
-                      </s-text>
-                      {product.quality.needsRecommendations && (
-                        <s-text>
-                          {" "}| {product.quality.findings.length} issue
-                          {product.quality.findings.length !== 1 ? "s" : ""}
-                        </s-text>
-                      )}
-                    </s-box>
-                  </s-stack>
-                </s-box>
-              );
-            })}
+            {filteredProducts.map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
           </s-stack>
         )}
       </s-section>
