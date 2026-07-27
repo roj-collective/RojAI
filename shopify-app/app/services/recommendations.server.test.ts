@@ -423,6 +423,89 @@ describe("Action response shape", () => {
 });
 
 
+// ── Missing Shopify-side API key in production ──────────────────────────────
+
+describe("generateRecommendation — missing ROJAI_API_KEY in production", () => {
+  const originalEnv = process.env.ROJAI_API_KEY;
+  const originalNodeEnv = process.env.NODE_ENV;
+
+  beforeEach(() => {
+    process.env.ROJAI_API_URL = "https://test-api.example.com";
+    delete process.env.ROJAI_API_KEY;
+    process.env.NODE_ENV = "production";
+  });
+
+  afterEach(() => {
+    if (originalEnv !== undefined) process.env.ROJAI_API_KEY = originalEnv;
+    else delete process.env.ROJAI_API_KEY;
+    if (originalNodeEnv !== undefined) process.env.NODE_ENV = originalNodeEnv;
+    else delete process.env.NODE_ENV;
+    delete process.env.ROJAI_API_URL;
+  });
+
+  it("throws ConfigurationError when API key is missing in production", async () => {
+    await expect(
+      generateRecommendation({
+        title: "Test",
+        description: "Desc",
+        productType: "Type",
+        vendor: "",
+      }),
+    ).rejects.toThrow(ConfigurationError);
+  });
+
+  it("includes helpful message about ROJAI_API_KEY", async () => {
+    await expect(
+      generateRecommendation({
+        title: "Test",
+        description: "Desc",
+        productType: "Type",
+        vendor: "",
+      }),
+    ).rejects.toThrow("ROJAI_API_KEY");
+  });
+});
+
+// ── Authorization header sent correctly ─────────────────────────────────────
+
+describe("generateRecommendation — Authorization header", () => {
+  beforeEach(() => {
+    process.env.ROJAI_API_URL = "https://test-api.example.com";
+    process.env.ROJAI_API_KEY = "test-secret-key";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          title: "T", bulletPoints: ["1","2","3"], description: "D",
+          seoKeywords: ["k"], tags: ["t"],
+          metadata: { marketplace: "shopify", language: "en", tone: "professional", source: "mock" },
+        }),
+      }),
+    );
+  });
+
+  afterEach(() => {
+    delete process.env.ROJAI_API_URL;
+    delete process.env.ROJAI_API_KEY;
+    vi.unstubAllGlobals();
+  });
+
+  it("sends Bearer token in Authorization header", async () => {
+    await generateRecommendation({ title: "T", description: "D", productType: "P", vendor: "" });
+    const callArgs = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(callArgs[1].headers["Authorization"]).toBe("Bearer test-secret-key");
+  });
+
+  it("does not send empty Authorization header when key is missing in dev", async () => {
+    delete process.env.ROJAI_API_KEY;
+    delete process.env.NODE_ENV; // not production
+    await generateRecommendation({ title: "T", description: "D", productType: "P", vendor: "" });
+    const callArgs = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(callArgs[1].headers["Authorization"]).toBeUndefined();
+  });
+});
+
 // ── HTML stripping ──────────────────────────────────────────────────────────
 
 describe("stripHtml", () => {

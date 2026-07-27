@@ -1,25 +1,33 @@
 import * as cdk from "aws-cdk-lib";
+import * as budgets from "aws-cdk-lib/aws-budgets";
+import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as logs from "aws-cdk-lib/aws-logs";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
 import * as apigwv2integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import { Construct } from "constructs";
 import * as path from "path";
 
+export interface RojAIStackProps extends cdk.StackProps {
+  /** Name of the Secrets Manager secret storing the API key. Default: rojai/api-key */
+  apiKeySecretName?: string;
+  /** Monthly budget limit in USD. Default: 25 */
+  monthlyBudgetUsd?: number;
+  /** Email for budget notifications. Required for budget alerts. */
+  budgetNotificationEmail?: string;
+}
+
 export class RojAIStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+  constructor(scope: Construct, id: string, props?: RojAIStackProps) {
     super(scope, id, props);
 
     // ── Context values (pass with -c key=value) ────────────────────────────
-    // Required: npx cdk deploy -c bedrockModelId=anthropic.claude-3-sonnet-20240229-v1:0
     const bedrockModelId: string =
       this.node.tryGetContext("bedrockModelId") ??
       "anthropic.claude-3-sonnet-20240229-v1:0";
 
-    // Allow CORS from local frontend during dev; override for production deploy.
-    // Pass a comma-separated list for multiple origins:
-    //   -c allowedOrigins="http://localhost:5173,https://develop.xyz.amplifyapp.com"
     const allowedOriginsRaw: string =
       this.node.tryGetContext("allowedOrigins") ??
       this.node.tryGetContext("allowedOrigin") ??
@@ -30,6 +38,29 @@ export class RojAIStack extends cdk.Stack {
       .map((o: string) => o.trim())
       .filter((o: string) => o.length > 0);
 
+    const apiKeySecretName: string =
+      this.node.tryGetContext("apiKeySecretName") ??
+      props?.apiKeySecretName ??
+      "rojai/api-key";
+
+    const monthlyBudgetUsd: number =
+      Number(this.node.tryGetContext("monthlyBudgetUsd")) ||
+      (props?.monthlyBudgetUsd ?? 25);
+
+    const budgetNotificationEmail: string =
+      this.node.tryGetContext("budgetNotificationEmail") ??
+      props?.budgetNotificationEmail ??
+      "";
+
+    // ── API Key Secret (Secrets Manager) ───────────────────────────────────
+    // The secret must be pre-created with a plaintext API key value.
+    // Create: aws secretsmanager create-secret --name rojai/api-key --secret-string "$(openssl rand -hex 32)"
+    const apiKeySecret = secretsmanager.Secret.fromSecretNameV2(
+      this,
+      "ApiKeySecret",
+      apiKeySecretName,
+    );
+
     // ── CloudWatch log group ───────────────────────────────────────────────
     const logGroup = new logs.LogGroup(this, "GeneratorLogGroup", {
       logGroupName: "/rojai/generator",
@@ -38,8 +69,6 @@ export class RojAIStack extends cdk.Stack {
     });
 
     // ── Lambda function ────────────────────────────────────────────────────
-    // Handler: app.handler  (backend/app.py → def handler)
-    // Asset:   backend/ root, production modules only
     const generatorFn = new lambda.Function(this, "GeneratorFunction", {
       functionName: "rojai-generator",
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -72,23 +101,24 @@ export class RojAIStack extends cdk.Stack {
         USE_MOCK_BEDROCK: "false",
         BEDROCK_MODEL_ID: bedrockModelId,
         ALLOWED_ORIGIN: allowedOrigins.join(","),
+        ROJAI_API_KEY_SECRET_NAME: apiKeySecretName,
+        // ROJAI_API_KEY is resolved at runtime from Secrets Manager
+        // ROJAI_AUTH_DISABLED is NOT set — auth is always enabled in production
         // AWS_REGION is injected automatically by the Lambda runtime
       },
     });
 
+    // ── Secrets Manager read permission (API key only) ─────────────────────
+    apiKeySecret.grantRead(generatorFn);
+
     // ── Bedrock permission ─────────────────────────────────────────────────
-    // Support both foundation model IDs and cross-region inference profile IDs.
-    // Inference profiles use: arn:aws:bedrock:<region>:<account>:inference-profile/<id>
-    // Foundation models use:  arn:aws:bedrock:<region>::foundation-model/<id>
     const isInferenceProfile = bedrockModelId.startsWith("us.") || bedrockModelId.startsWith("global.");
 
     const bedrockResources: string[] = [];
     if (isInferenceProfile) {
-      // Inference profile ARN (account-scoped)
       bedrockResources.push(
         `arn:aws:bedrock:${this.region}:${this.account}:inference-profile/${bedrockModelId}`
       );
-      // Also need access to the underlying foundation model(s) in any region
       const baseModelId = bedrockModelId.replace(/^(us|global)\./, "");
       bedrockResources.push(
         `arn:aws:bedrock:*::foundation-model/${baseModelId}`
@@ -118,10 +148,18 @@ export class RojAIStack extends cdk.Stack {
           apigwv2.CorsHttpMethod.POST,
           apigwv2.CorsHttpMethod.OPTIONS,
         ],
-        allowHeaders: ["Content-Type"],
+        allowHeaders: ["Content-Type", "Authorization"],
         maxAge: cdk.Duration.hours(1),
       },
     });
+
+    // ── API Gateway Throttling ─────────────────────────────────────────────
+    // Conservative limits for a single-merchant app to prevent cost abuse.
+    const cfnStage = httpApi.defaultStage!.node.defaultChild as cdk.aws_apigatewayv2.CfnStage;
+    cfnStage.defaultRouteSettings = {
+      throttlingBurstLimit: Number(this.node.tryGetContext("apiBurstLimit")) || 10,
+      throttlingRateLimit: Number(this.node.tryGetContext("apiRateLimit")) || 5,
+    };
 
     // POST /generate-listing
     httpApi.addRoutes({
@@ -132,6 +170,104 @@ export class RojAIStack extends cdk.Stack {
         generatorFn
       ),
     });
+
+    // ── CloudWatch Alarms ──────────────────────────────────────────────────
+
+    // Alarm: Lambda platform errors (crashes, timeouts, OOM)
+    new cloudwatch.Alarm(this, "GeneratorErrorAlarm", {
+      alarmName: "rojai-generator-errors",
+      alarmDescription: "Lambda platform errors (crashes, timeouts, OOM)",
+      metric: generatorFn.metricErrors({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    // Alarm: Lambda approaching timeout
+    new cloudwatch.Alarm(this, "GeneratorDurationAlarm", {
+      alarmName: "rojai-generator-duration",
+      alarmDescription: "Generator Lambda duration exceeds 25 seconds",
+      metric: generatorFn.metricDuration({
+        period: cdk.Duration.minutes(5),
+        statistic: "Maximum",
+      }),
+      threshold: 25_000,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    // Metric filter: detect application-level 5xx responses in logs
+    // (Lambda may return 200 to API Gateway but the body contains status 500/502)
+    const serverErrorMetricFilter = new logs.MetricFilter(this, "ServerErrorFilter", {
+      logGroup,
+      filterPattern: logs.FilterPattern.literal("?status=500 ?status=502 ?status=503"),
+      metricNamespace: "RojAI/Generator",
+      metricName: "ServerErrors",
+      metricValue: "1",
+      defaultValue: 0,
+    });
+
+    new cloudwatch.Alarm(this, "GeneratorServerErrorAlarm", {
+      alarmName: "rojai-generator-5xx",
+      alarmDescription: "Application-level 5xx responses (Bedrock failures, unexpected errors)",
+      metric: serverErrorMetricFilter.metric({
+        period: cdk.Duration.minutes(5),
+        statistic: "Sum",
+      }),
+      threshold: 3,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    // ── AWS Budget ─────────────────────────────────────────────────────────
+    if (budgetNotificationEmail) {
+      new budgets.CfnBudget(this, "MonthlyBudget", {
+        budget: {
+          budgetName: "rojai-monthly-budget",
+          budgetType: "COST",
+          timeUnit: "MONTHLY",
+          budgetLimit: {
+            amount: monthlyBudgetUsd,
+            unit: "USD",
+          },
+        },
+        notificationsWithSubscribers: [
+          {
+            notification: {
+              notificationType: "ACTUAL",
+              comparisonOperator: "GREATER_THAN",
+              threshold: 80,
+              thresholdType: "PERCENTAGE",
+            },
+            subscribers: [
+              {
+                subscriptionType: "EMAIL",
+                address: budgetNotificationEmail,
+              },
+            ],
+          },
+          {
+            notification: {
+              notificationType: "ACTUAL",
+              comparisonOperator: "GREATER_THAN",
+              threshold: 100,
+              thresholdType: "PERCENTAGE",
+            },
+            subscribers: [
+              {
+                subscriptionType: "EMAIL",
+                address: budgetNotificationEmail,
+              },
+            ],
+          },
+        ],
+      });
+    }
 
     // ── Stack outputs ──────────────────────────────────────────────────────
     new cdk.CfnOutput(this, "ApiBaseUrl", {

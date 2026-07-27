@@ -210,11 +210,28 @@ export async function generateRecommendation(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
+  // API key for authentication.
+  // In production (NODE_ENV=production), missing key is a configuration error.
+  // In development, requests proceed without auth (backend has ROJAI_AUTH_DISABLED).
+  const apiKey = process.env.ROJAI_API_KEY || "";
+  if (!apiKey && process.env.NODE_ENV === "production") {
+    throw new ConfigurationError(
+      "ROJAI_API_KEY environment variable is not set. " +
+        "Required for production API authentication.",
+    );
+  }
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (apiKey) {
+    headers["Authorization"] = `Bearer ${apiKey}`;
+  }
+
   let response: Response;
   try {
     response = await fetch(endpoint, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(body),
       signal: controller.signal,
     });
