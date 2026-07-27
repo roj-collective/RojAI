@@ -30,6 +30,7 @@ The default `DATABASE_URL` in `.env.example` matches the docker-compose configur
 ### 3. Apply database migrations
 
 ```shell
+npx prisma generate
 npx prisma migrate deploy
 ```
 
