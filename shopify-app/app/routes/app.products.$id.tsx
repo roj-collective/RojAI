@@ -1,5 +1,5 @@
-import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { useLoaderData } from "react-router";
+import type { HeadersFunction, LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
+import { useLoaderData, useFetcher } from "react-router";
 import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import {
@@ -11,6 +11,13 @@ import {
 import { ScoreBadge } from "../components/ScoreBadge";
 import { FindingsList } from "../components/FindingsList";
 import { ProductDetails } from "../components/ProductDetails";
+import { RecommendationCard } from "../components/RecommendationCard";
+import {
+  generateRecommendation,
+  RecommendationApiError,
+  ConfigurationError,
+  type RecommendationResponse,
+} from "../services/recommendations.server";
 
 interface ProductDetail {
   id: string;
@@ -35,6 +42,19 @@ interface LoaderData {
   findings: Finding[];
   needsRecommendations: boolean;
 }
+
+interface ActionSuccess {
+  ok: true;
+  recommendation: RecommendationResponse;
+}
+
+interface ActionError {
+  ok: false;
+  error: string;
+  isRetryable: boolean;
+}
+
+type ActionData = ActionSuccess | ActionError;
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const { admin } = await authenticate.admin(request);
@@ -115,9 +135,55 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   } satisfies LoaderData;
 };
 
+export const action = async ({ request }: ActionFunctionArgs) => {
+  await authenticate.admin(request);
+
+  const formData = await request.formData();
+  const title = formData.get("title") as string;
+  const description = formData.get("description") as string;
+  const productType = formData.get("productType") as string;
+  const vendor = formData.get("vendor") as string;
+
+  try {
+    const recommendation = await generateRecommendation({
+      title,
+      description,
+      productType,
+      vendor,
+    });
+    return { ok: true, recommendation } satisfies ActionSuccess;
+  } catch (err) {
+    if (err instanceof ConfigurationError) {
+      return {
+        ok: false,
+        error: err.message,
+        isRetryable: false,
+      } satisfies ActionError;
+    }
+    if (err instanceof RecommendationApiError) {
+      return {
+        ok: false,
+        error: err.message,
+        isRetryable: err.isRetryable,
+      } satisfies ActionError;
+    }
+    return {
+      ok: false,
+      error: "An unexpected error occurred while generating the recommendation.",
+      isRetryable: true,
+    } satisfies ActionError;
+  }
+};
+
 export default function ProductDetailPage() {
   const { product, score, findings, needsRecommendations } =
     useLoaderData<LoaderData>();
+  const fetcher = useFetcher<ActionData>();
+
+  const isLoading = fetcher.state !== "idle";
+  const actionData = fetcher.data;
+  const hasRecommendation = actionData?.ok === true;
+  const hasError = actionData?.ok === false;
 
   const detailFields = [
     { label: "Status", value: product.status },
@@ -153,6 +219,48 @@ export default function ProductDetailPage() {
         <s-paragraph>
           <s-link href="/app">← Back to dashboard</s-link>
         </s-paragraph>
+      </s-section>
+
+      <s-section heading="AI Recommendation">
+        <s-paragraph>
+          Generate an AI-powered listing improvement using Amazon Bedrock.
+          This sends the product data to the RojAI backend for analysis.
+        </s-paragraph>
+        <fetcher.Form method="post">
+          <input type="hidden" name="title" value={product.title} />
+          <input type="hidden" name="description" value={product.description} />
+          <input type="hidden" name="productType" value={product.productType} />
+          <input type="hidden" name="vendor" value={product.vendor} />
+          <s-button
+            variant="primary"
+            onClick={() => {}}
+            {...(isLoading ? { loading: true, disabled: true } : {})}
+          >
+            {isLoading ? "Generating..." : "Generate AI Recommendation"}
+          </s-button>
+        </fetcher.Form>
+
+        {isLoading && (
+          <s-box padding="base">
+            <s-text>Analyzing product and generating recommendation...</s-text>
+          </s-box>
+        )}
+
+        {hasError && actionData && !actionData.ok && (
+          <s-box padding="base" borderWidth="base" borderRadius="base">
+            <s-badge tone="critical">Error</s-badge>
+            <s-text> {actionData.error}</s-text>
+            {actionData.isRetryable && (
+              <s-paragraph>
+                <s-text>You can try again — this may be a temporary issue.</s-text>
+              </s-paragraph>
+            )}
+          </s-box>
+        )}
+
+        {hasRecommendation && actionData && actionData.ok && (
+          <RecommendationCard recommendation={actionData.recommendation} />
+        )}
       </s-section>
 
       <s-section heading="Product details">
