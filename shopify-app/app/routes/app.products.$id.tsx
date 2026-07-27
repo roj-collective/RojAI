@@ -231,13 +231,22 @@ export default function ProductDetailPage() {
           <input type="hidden" name="description" value={product.description} />
           <input type="hidden" name="productType" value={product.productType} />
           <input type="hidden" name="vendor" value={product.vendor} />
-          <s-button
-            variant="primary"
-            onClick={() => {}}
-            {...(isLoading ? { loading: true, disabled: true } : {})}
+          <button
+            type="submit"
+            disabled={isLoading}
+            style={{
+              padding: "8px 16px",
+              borderRadius: "6px",
+              border: "none",
+              backgroundColor: isLoading ? "#8c9196" : "#008060",
+              color: "white",
+              fontWeight: 600,
+              fontSize: "14px",
+              cursor: isLoading ? "not-allowed" : "pointer",
+            }}
           >
             {isLoading ? "Generating..." : "Generate AI Recommendation"}
-          </s-button>
+          </button>
         </fetcher.Form>
 
         {isLoading && (
