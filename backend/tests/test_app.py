@@ -19,6 +19,7 @@ from unittest.mock import patch, MagicMock
 # Set default env before importing handler
 os.environ.setdefault("USE_MOCK_BEDROCK", "true")
 os.environ.setdefault("ALLOWED_ORIGIN", "http://localhost:5173")
+os.environ.setdefault("ROJAI_AUTH_DISABLED", "true")
 
 from app import handler  # noqa: E402  (must import after env is set)
 
@@ -34,7 +35,7 @@ def _make_event(body: dict | str | None = None, method: str = "POST") -> dict:
         raw = body
     return {
         "requestContext": {"http": {"method": method}},
-        "headers": {"Content-Type": "application/json"},
+        "headers": {"Content-Type": "application/json", "authorization": "Bearer test-key"},
         "body": raw,
     }
 
@@ -166,7 +167,7 @@ def test_bedrock_client_error_returns_502():
     error_response = {"Error": {"Code": "AccessDeniedException", "Message": "Access denied"}}
     exc = ClientError(error_response, "InvokeModel")
 
-    with patch.dict(os.environ, {"USE_MOCK_BEDROCK": "false"}):
+    with patch.dict(os.environ, {"USE_MOCK_BEDROCK": "false", "ROJAI_API_KEY": "test-key"}):
         with patch("bedrock_service.boto3.client") as mock_client_cls:
             mock_client = MagicMock()
             mock_client.invoke_model.side_effect = exc
@@ -189,7 +190,7 @@ def test_malformed_bedrock_response_returns_502():
         "content": [{"text": "Sorry, I cannot generate that right now."}]
     }).encode()
 
-    with patch.dict(os.environ, {"USE_MOCK_BEDROCK": "false"}):
+    with patch.dict(os.environ, {"USE_MOCK_BEDROCK": "false", "ROJAI_API_KEY": "test-key"}):
         with patch("bedrock_service.boto3.client") as mock_client_cls:
             mock_client = MagicMock()
             mock_client.invoke_model.return_value = {"body": fake_body}
@@ -207,7 +208,7 @@ def test_bedrock_missing_keys_returns_502():
         "content": [{"text": json.dumps({"title": "Test"})}]  # missing bulletPoints etc.
     }).encode()
 
-    with patch.dict(os.environ, {"USE_MOCK_BEDROCK": "false"}):
+    with patch.dict(os.environ, {"USE_MOCK_BEDROCK": "false", "ROJAI_API_KEY": "test-key"}):
         with patch("bedrock_service.boto3.client") as mock_client_cls:
             mock_client = MagicMock()
             mock_client.invoke_model.return_value = {"body": fake_body}
