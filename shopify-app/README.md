@@ -1,3 +1,67 @@
+# RojAI Shopify App
+
+Embedded Shopify app for the RojAI product quality dashboard.
+
+## Local Development Setup
+
+### Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) (for local PostgreSQL)
+- [Node.js](https://nodejs.org/) >= 20
+- [Shopify CLI](https://shopify.dev/docs/apps/tools/cli/getting-started)
+
+### 1. Start local PostgreSQL
+
+```shell
+cd shopify-app
+docker compose up -d
+```
+
+This starts a PostgreSQL container on port 5432 with development credentials.
+
+### 2. Configure environment
+
+```shell
+cp .env.example .env
+```
+
+The default `DATABASE_URL` in `.env.example` matches the docker-compose configuration. No changes needed for local development.
+
+### 3. Apply database migrations
+
+```shell
+npx prisma generate
+npx prisma migrate deploy
+```
+
+### 4. Start the Shopify app
+
+```shell
+shopify app dev
+```
+
+### Stopping PostgreSQL
+
+```shell
+# Stop the container (preserves data):
+docker compose down
+
+# Stop AND delete all local session data (fresh start):
+docker compose down -v
+```
+
+### Running tests
+
+```shell
+# Unit tests (no database required):
+npm run test
+
+# Integration tests (requires PostgreSQL running):
+DATABASE_URL="postgresql://rojai:rojai_dev@localhost:5432/rojai_dev" npm run test
+```
+
+---
+
 # Shopify App Template - React Router
 
 This is a template for building a [Shopify app](https://shopify.dev/docs/apps/getting-started) using [React Router](https://reactrouter.com/). It was forked from the [Shopify Remix app template](https://github.com/Shopify/shopify-app-template-remix) and converted to React Router.
