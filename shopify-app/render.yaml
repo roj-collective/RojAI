@@ -35,8 +35,8 @@ services:
 
 databases:
   - name: rojai-db
-    plan: basic
+    plan: basic-256mb
     databaseName: rojai
     region: ohio
-    diskSizeGB: 5
+    diskSizeGB: 1
     postgresMajorVersion: "16"
