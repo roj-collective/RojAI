@@ -1,0 +1,40 @@
+# Render Blueprint — RojAI Shopify App
+# https://render.com/docs/blueprint-spec
+#
+# This file defines the Render services for the RojAI Shopify embedded app.
+# Deploy from the shopify-app/ directory.
+
+services:
+  - type: web
+    name: rojai-shopify
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    region: ohio  # us-east closest to us-east-1 (AWS backend)
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: rojai-db
+          property: connectionString
+      - key: SHOPIFY_API_KEY
+        sync: false  # Set manually in Render dashboard
+      - key: SHOPIFY_API_SECRET
+        sync: false
+      - key: SCOPES
+        value: read_products
+      - key: SHOPIFY_APP_URL
+        sync: false  # Set to your Render service URL after first deploy
+      - key: ROJAI_API_URL
+        sync: false  # AWS API Gateway URL
+      - key: ROJAI_API_KEY
+        sync: false  # API key matching AWS Secrets Manager
+      - key: NODE_ENV
+        value: production
+
+databases:
+  - name: rojai-db
+    plan: starter
+    databaseName: rojai
+    region: ohio
