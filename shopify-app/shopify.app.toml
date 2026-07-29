@@ -2,7 +2,7 @@
 
 client_id = "fbda30fc0ed4c605675c272dd383871a"
 name = "RojAi Agent"
-application_url = "https://example.com"
+application_url = "https://rojai-shopify.onrender.com"
 embedded = true
 
 [access_scopes]
@@ -23,8 +23,7 @@ api_version = "2026-07"
   topics = [ "app/scopes_update" ]
 
 [auth]
-redirect_urls = [ ]
+redirect_urls = [ "https://rojai-shopify.onrender.com/auth/callback" ]
 
 [build]
-include_config_on_deploy = true
 automatically_update_urls_on_dev = true
