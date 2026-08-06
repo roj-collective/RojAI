@@ -1,13 +1,9 @@
 /**
  * AuthContext.tsx — React context providing authentication state.
  *
- * Wraps the app to provide:
- * - isAuthenticated: whether the user has a valid session
- * - isLoading: whether the initial session check is in progress
- * - userEmail: the signed-in user's email
- * - login/logout/refresh functions
- *
- * On mount, checks for an existing valid Cognito session in localStorage.
+ * Cognito SDK (amazon-cognito-identity-js) is loaded via dynamic import
+ * to avoid eagerly pulling in Node.js Buffer polyfills at module load time.
+ * This is required for Vite browser compatibility.
  */
 
 import {
@@ -19,8 +15,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-
-import { getSession, getUserEmail, signOut } from "./authService";
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -46,6 +40,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const checkSession = useCallback(async () => {
     try {
+      // Dynamic import: Cognito SDK only loaded at runtime (not at module parse time)
+      const { getSession, getUserEmail } = await import("./authService");
       const session = await getSession();
       if (session && session.isValid()) {
         const token = session.getIdToken().getJwtToken();
@@ -83,7 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [checkSession]);
 
   const logout = useCallback(() => {
-    signOut();
+    import("./authService").then(({ signOut }) => signOut());
     setState({
       isAuthenticated: false,
       isLoading: false,

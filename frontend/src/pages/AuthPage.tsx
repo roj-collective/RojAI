@@ -12,15 +12,11 @@
  */
 
 import { useState, type FormEvent } from "react";
-import {
-  signUp,
-  confirmSignUp,
-  signIn,
-  forgotPassword,
-  confirmPassword,
-  resendConfirmationCode,
-} from "../auth";
 import { useAuth } from "../auth";
+
+// Auth functions are loaded dynamically to avoid eagerly importing
+// amazon-cognito-identity-js (which needs Buffer polyfill).
+const authModule = () => import("../auth/authService");
 
 type AuthView = "signIn" | "signUp" | "verify" | "forgotPassword" | "resetPassword";
 
@@ -46,7 +42,7 @@ export default function AuthPage() {
     clearMessages();
     setIsLoading(true);
     try {
-      await signIn(email, password);
+      await (await authModule()).signIn(email, password);
       await refreshSession();
     } catch (err: any) {
       if (err?.code === "UserNotConfirmedException") {
@@ -65,12 +61,12 @@ export default function AuthPage() {
     clearMessages();
     setIsLoading(true);
     try {
-      const result = await signUp(email, password);
+      const result = await (await authModule()).signUp(email, password);
       if (!result.userConfirmed) {
         setView("verify");
         setSuccess("Account created! Check your email for a verification code.");
       } else {
-        await signIn(email, password);
+        await (await authModule()).signIn(email, password);
         await refreshSession();
       }
     } catch (err: any) {
@@ -85,7 +81,7 @@ export default function AuthPage() {
     clearMessages();
     setIsLoading(true);
     try {
-      await confirmSignUp(email, confirmCode);
+      await (await authModule()).confirmSignUp(email, confirmCode);
       setSuccess("Email verified! You can now sign in.");
       setView("signIn");
     } catch (err: any) {
@@ -98,7 +94,7 @@ export default function AuthPage() {
   async function handleResendCode() {
     clearMessages();
     try {
-      await resendConfirmationCode(email);
+      await (await authModule()).resendConfirmationCode(email);
       setSuccess("Verification code resent. Check your email.");
     } catch (err: any) {
       setError(err?.message || "Could not resend code.");
@@ -110,7 +106,7 @@ export default function AuthPage() {
     clearMessages();
     setIsLoading(true);
     try {
-      await forgotPassword(email);
+      await (await authModule()).forgotPassword(email);
       setSuccess("Password reset code sent to your email.");
       setView("resetPassword");
     } catch (err: any) {
@@ -125,7 +121,7 @@ export default function AuthPage() {
     clearMessages();
     setIsLoading(true);
     try {
-      await confirmPassword(email, confirmCode, newPassword);
+      await (await authModule()).confirmPassword(email, confirmCode, newPassword);
       setSuccess("Password reset successful! You can now sign in.");
       setView("signIn");
     } catch (err: any) {
