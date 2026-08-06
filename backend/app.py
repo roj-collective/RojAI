@@ -50,6 +50,7 @@ from usage_service import (
     DuplicateRequest,
     RegenerationLimitExceeded,
     UsageLimitExceeded,
+    check_idempotency,
     complete_generation,
     get_usage,
     release_generation,
@@ -221,7 +222,11 @@ def _handle_generate(event: dict[str, Any], context: Any, origin: str) -> dict[s
                 },
                 origin,
             )
-        except DuplicateRequest:
+        except DuplicateRequest as exc:
+            # Return cached response if available (idempotent replay)
+            status, item = check_idempotency(user_id, idempotency_key)
+            if status == "completed" and item and item.get("cachedResponse"):
+                return _json_response(200, item["cachedResponse"], origin)
             return _json_response(
                 409,
                 {"error": "This request has already been processed."},
@@ -255,7 +260,7 @@ def _handle_generate(event: dict[str, Any], context: Any, origin: str) -> dict[s
 
     # ── Mark generation as completed ─────────────────────────────────────────
     if usage_reserved:
-        complete_generation(user_id, idempotency_key)
+        complete_generation(user_id, idempotency_key, cached_response=_serialise(listing))
 
     duration = time.monotonic() - start_time
     logger.info(

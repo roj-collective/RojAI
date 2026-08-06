@@ -150,13 +150,17 @@ def get_usage(user_id: str) -> dict:
     }
 
 
-def check_idempotency(user_id: str, idempotency_key: str) -> Optional[dict]:
+def check_idempotency(user_id: str, idempotency_key: str) -> tuple[str | None, dict | None]:
     """
     Check if a request with this idempotency key was already processed.
-    Returns the existing request record if found, None otherwise.
+
+    Returns:
+      ("completed", item) — if the request completed successfully (return cached response)
+      ("reserved", item)  — if a reservation exists but never completed (stale/abandoned)
+      (None, None)        — if no record exists (new request)
     """
     if not idempotency_key:
-        return None
+        return None, None
 
     table = _get_requests_table()
     try:
@@ -168,9 +172,15 @@ def check_idempotency(user_id: str, idempotency_key: str) -> Optional[dict]:
         raise
 
     item = response.get("Item")
-    if item and item.get("status") == "completed":
-        return item
-    return None
+    if not item:
+        return None, None
+
+    status = item.get("status", "")
+    if status == "completed":
+        return "completed", item
+    if status == "reserved":
+        return "reserved", item
+    return None, None
 
 
 def reserve_generation(
@@ -194,17 +204,38 @@ def reserve_generation(
     usage_table = _get_usage_table()
     requests_table = _get_requests_table()
 
-    # Step 1: Check idempotency
-    existing = check_idempotency(user_id, idempotency_key)
-    if existing:
-        raise DuplicateRequest(idempotency_key)
-
-    # Step 2: Get current usage to determine plan and limits
+    # Step 1: Get current usage to determine plan and limits (needed for all paths)
     usage = get_usage(user_id)
     plan = usage["plan"]
     limits = _PLAN_LIMITS.get(plan, _PLAN_LIMITS["free"])
     monthly_limit = limits["monthly_generations"]
     regen_limit = limits["regenerations_per_listing"]
+
+    # Step 2: Check idempotency
+    status, existing = check_idempotency(user_id, idempotency_key)
+    if status == "completed":
+        raise DuplicateRequest(idempotency_key)
+    # If status == "reserved", this is a stale/abandoned reservation from a previous
+    # timeout. The monthly counter was already incremented. Reuse the reservation
+    # without incrementing again — just update the record timestamp.
+    if status == "reserved":
+        try:
+            requests_table.update_item(
+                Key={"pk": f"USER#{user_id}", "sk": f"REQ#{idempotency_key}"},
+                UpdateExpression="SET createdAt = :now",
+                ExpressionAttributeValues={
+                    ":now": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+        except ClientError:
+            pass  # Non-fatal — the reservation still exists
+        return {
+            "plan": plan,
+            "generationCount": usage["generationCount"],
+            "monthlyLimit": monthly_limit,
+            "resetDate": get_month_reset_date(),
+            "reused_reservation": True,
+        }
 
     # Step 3: Check regeneration limit if this is a regeneration
     if listing_key:
@@ -274,18 +305,24 @@ def reserve_generation(
     }
 
 
-def complete_generation(user_id: str, idempotency_key: str) -> None:
-    """Mark a reserved generation as completed (Bedrock succeeded)."""
+def complete_generation(user_id: str, idempotency_key: str, cached_response: dict | None = None) -> None:
+    """Mark a reserved generation as completed (Bedrock succeeded). Optionally store the response for idempotent replay."""
     requests_table = _get_requests_table()
+    update_expr = "SET #s = :completed, completedAt = :now"
+    attr_values: dict = {
+        ":completed": "completed",
+        ":now": datetime.now(timezone.utc).isoformat(),
+    }
+    if cached_response:
+        update_expr += ", cachedResponse = :resp"
+        attr_values[":resp"] = cached_response
+
     try:
         requests_table.update_item(
             Key={"pk": f"USER#{user_id}", "sk": f"REQ#{idempotency_key}"},
-            UpdateExpression="SET #s = :completed, completedAt = :now",
+            UpdateExpression=update_expr,
             ExpressionAttributeNames={"#s": "status"},
-            ExpressionAttributeValues={
-                ":completed": "completed",
-                ":now": datetime.now(timezone.utc).isoformat(),
-            },
+            ExpressionAttributeValues=attr_values,
         )
     except ClientError as exc:
         # Non-fatal: the generation already happened. Log and continue.

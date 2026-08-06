@@ -203,7 +203,7 @@ class TestUsageLimitHandler:
 
 
 class TestIdempotencyHandler:
-    def test_returns_409_on_duplicate_request(self):
+    def test_returns_409_on_duplicate_request_without_cache(self):
         from usage_service import DuplicateRequest
 
         with patch("app.check_rate_limit"):
@@ -211,10 +211,11 @@ class TestIdempotencyHandler:
                 "app.reserve_generation",
                 side_effect=DuplicateRequest("dup-key"),
             ):
-                result = handler(
-                    _make_cognito_event(body=_valid_body()), None
-                )
-                assert result["statusCode"] == 409
+                with patch("app.check_idempotency", return_value=("completed", {"status": "completed"})):
+                    result = handler(
+                        _make_cognito_event(body=_valid_body()), None
+                    )
+                    assert result["statusCode"] == 409
 
 
 # ── Release on Bedrock failure ───────────────────────────────────────────────
@@ -292,3 +293,122 @@ class TestUsageRoute:
 
 # ── Import needed for side_effect usage ──────────────────────────────────────
 from usage_service import UsageLimitExceeded  # noqa: E402
+
+
+# ── Idempotent replay of completed request ───────────────────────────────────
+
+
+class TestIdempotentReplay:
+    def test_returns_cached_response_for_completed_duplicate(self):
+        """A completed request replayed with the same idempotency key returns the cached response (200, not 409)."""
+        with patch("app.check_rate_limit"):
+            with patch(
+                "app.reserve_generation",
+                side_effect=DuplicateRequest("replay-key"),
+            ):
+                with patch("app.check_idempotency", return_value=(
+                    "completed",
+                    {"status": "completed", "cachedResponse": {"title": "Cached Title", "bulletPoints": [], "description": "cached", "seoKeywords": [], "tags": []}},
+                )) as mock_idem:
+                    result = handler(
+                        _make_cognito_event(body=_valid_body()), None
+                    )
+                    assert result["statusCode"] == 200
+                    body = json.loads(result["body"])
+                    assert body["title"] == "Cached Title"
+
+    def test_returns_409_when_no_cached_response(self):
+        """A completed request without a cached response returns 409."""
+        with patch("app.check_rate_limit"):
+            with patch(
+                "app.reserve_generation",
+                side_effect=DuplicateRequest("no-cache-key"),
+            ):
+                with patch("app.check_idempotency", return_value=(
+                    "completed",
+                    {"status": "completed"},
+                )):
+                    result = handler(
+                        _make_cognito_event(body=_valid_body()), None
+                    )
+                    assert result["statusCode"] == 409
+
+
+# ── Stale reservation reuse (no double-charge) ──────────────────────────────
+
+
+class TestStaleReservationReuse:
+    def test_stale_reservation_does_not_double_increment(self):
+        """reserve_generation with an existing 'reserved' record does NOT increment the counter again."""
+        with patch("app.check_rate_limit"):
+            with patch("app.reserve_generation", return_value={
+                "generationCount": 2, "plan": "free", "monthlyLimit": 5,
+                "resetDate": "2026-08-01", "reused_reservation": True,
+            }) as mock_reserve:
+                with patch("app.complete_generation"):
+                    result = handler(
+                        _make_cognito_event(body=_valid_body()), None
+                    )
+                    assert result["statusCode"] == 200
+                    # Reserve was called (it internally handles the reuse)
+                    mock_reserve.assert_called_once()
+
+
+# ── /internal/generate-listing API key enforcement ───────────────────────────
+
+
+class TestInternalRoute:
+    def test_internal_route_rejects_missing_api_key(self):
+        """POST /internal/generate-listing without API key returns 401."""
+        event = {
+            "requestContext": {
+                "http": {"method": "POST", "path": "/internal/generate-listing"},
+                "requestId": "test-internal-1",
+            },
+            "headers": {"content-type": "application/json"},
+            "rawPath": "/internal/generate-listing",
+            "body": _valid_body(),
+        }
+        with patch.dict(os.environ, {"ROJAI_AUTH_DISABLED": "", "ROJAI_API_KEY": "real-secret"}):
+            result = handler(event, None)
+            assert result["statusCode"] == 401
+
+    def test_internal_route_rejects_invalid_api_key(self):
+        """POST /internal/generate-listing with wrong key returns 401."""
+        event = {
+            "requestContext": {
+                "http": {"method": "POST", "path": "/internal/generate-listing"},
+                "requestId": "test-internal-2",
+            },
+            "headers": {
+                "content-type": "application/json",
+                "authorization": "Bearer wrong-key",
+            },
+            "rawPath": "/internal/generate-listing",
+            "body": _valid_body(),
+        }
+        with patch.dict(os.environ, {"ROJAI_AUTH_DISABLED": "", "ROJAI_API_KEY": "correct-key"}):
+            result = handler(event, None)
+            assert result["statusCode"] == 401
+
+    def test_internal_route_accepts_valid_api_key(self):
+        """POST /internal/generate-listing with correct key returns 200."""
+        event = {
+            "requestContext": {
+                "http": {"method": "POST", "path": "/internal/generate-listing"},
+                "requestId": "test-internal-3",
+            },
+            "headers": {
+                "content-type": "application/json",
+                "authorization": "Bearer valid-internal-key",
+            },
+            "rawPath": "/internal/generate-listing",
+            "body": _valid_body(),
+        }
+        with patch.dict(os.environ, {"ROJAI_AUTH_DISABLED": "", "ROJAI_API_KEY": "valid-internal-key", "USE_MOCK_BEDROCK": "true"}):
+            result = handler(event, None)
+            assert result["statusCode"] == 200
+
+
+# ── Import needed ────────────────────────────────────────────────────────────
+from usage_service import DuplicateRequest  # noqa: E402

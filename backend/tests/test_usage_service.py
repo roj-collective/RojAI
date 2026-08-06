@@ -240,24 +240,39 @@ class TestCheckIdempotency:
         mock_requests.get_item.return_value = {}
         mock_requests_fn.return_value = mock_requests
 
-        result = check_idempotency("user-1", "new-key")
-        assert result is None
+        status, item = check_idempotency("user-1", "new-key")
+        assert status is None
+        assert item is None
 
     @patch("usage_service._get_requests_table")
-    def test_returns_item_for_completed_request(self, mock_requests_fn):
+    def test_returns_completed_for_completed_request(self, mock_requests_fn):
         mock_requests = MagicMock()
         mock_requests.get_item.return_value = {
             "Item": {"status": "completed", "pk": "USER#u1", "sk": "REQ#old-key"}
         }
         mock_requests_fn.return_value = mock_requests
 
-        result = check_idempotency("u1", "old-key")
-        assert result is not None
-        assert result["status"] == "completed"
+        status, item = check_idempotency("u1", "old-key")
+        assert status == "completed"
+        assert item is not None
+        assert item["status"] == "completed"
+
+    @patch("usage_service._get_requests_table")
+    def test_returns_reserved_for_stale_request(self, mock_requests_fn):
+        mock_requests = MagicMock()
+        mock_requests.get_item.return_value = {
+            "Item": {"status": "reserved", "pk": "USER#u1", "sk": "REQ#stale-key"}
+        }
+        mock_requests_fn.return_value = mock_requests
+
+        status, item = check_idempotency("u1", "stale-key")
+        assert status == "reserved"
+        assert item is not None
 
     def test_returns_none_for_empty_key(self):
-        result = check_idempotency("user-1", "")
-        assert result is None
+        status, item = check_idempotency("user-1", "")
+        assert status is None
+        assert item is None
 
 
 # ── Helper functions ─────────────────────────────────────────────────────────

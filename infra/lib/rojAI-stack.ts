@@ -268,6 +268,14 @@ export class RojAIStack extends cdk.Stack {
       },
     );
 
+    // ── Two-stage migration ────────────────────────────────────────────────
+    // Stage 1 (default): Deploy WITHOUT JWT protection on /generate-listing.
+    //   This adds /internal/generate-listing for Shopify migration.
+    // Stage 2 (-c enableCognitoAuth=true): Adds JWT authorizer to /generate-listing.
+    //   Only after Shopify has been migrated to /internal/generate-listing.
+    const enableCognitoAuth =
+      (this.node.tryGetContext("enableCognitoAuth") ?? "false") === "true";
+
     // ── API Gateway Throttling ─────────────────────────────────────────────
     const cfnStage = httpApi.defaultStage!.node.defaultChild as cdk.aws_apigatewayv2.CfnStage;
     cfnStage.defaultRouteSettings = {
@@ -275,7 +283,9 @@ export class RojAIStack extends cdk.Stack {
       throttlingRateLimit: Number(this.node.tryGetContext("apiRateLimit")) || 5,
     };
 
-    // POST /generate-listing (authenticated via Cognito JWT — standalone website)
+    // POST /generate-listing
+    // Stage 1: No authorizer (backward compatible — existing callers continue to work)
+    // Stage 2: JWT authorizer (standalone website must send Cognito token)
     httpApi.addRoutes({
       path: "/generate-listing",
       methods: [apigwv2.HttpMethod.POST],
@@ -283,7 +293,7 @@ export class RojAIStack extends cdk.Stack {
         "GeneratorIntegration",
         generatorFn
       ),
-      authorizer: jwtAuthorizer,
+      ...(enableCognitoAuth ? { authorizer: jwtAuthorizer } : {}),
     });
 
     // POST /internal/generate-listing (server-to-server — Shopify app uses Bearer API key)
@@ -306,7 +316,7 @@ export class RojAIStack extends cdk.Stack {
         "UsageIntegration",
         generatorFn
       ),
-      authorizer: jwtAuthorizer,
+      ...(enableCognitoAuth ? { authorizer: jwtAuthorizer } : {}),
     });
 
     // ── CloudWatch Alarms ──────────────────────────────────────────────────
