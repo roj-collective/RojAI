@@ -83,13 +83,9 @@ export default function AccountPage() {
           <label className="account-field__label">Password</label>
           <p className="account-field__value">
             ••••••••{" "}
-            <button
-              type="button"
-              className="account-field__action"
-              onClick={() => alert("Password reset will use the Cognito forgot-password flow once deployed.")}
-            >
+            <a href="/auth?view=forgotPassword" className="account-field__action">
               Change password
-            </button>
+            </a>
           </p>
         </div>
       </section>

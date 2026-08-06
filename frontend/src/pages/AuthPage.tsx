@@ -23,7 +23,15 @@ type AuthView = "signIn" | "signUp" | "verify" | "forgotPassword" | "resetPasswo
 export default function AuthPage() {
   const { refreshSession } = useAuth();
 
-  const [view, setView] = useState<AuthView>("signIn");
+  // Support ?view=forgotPassword from Account page "Change password" link
+  const initialView = (): AuthView => {
+    const params = new URLSearchParams(window.location.search);
+    const v = params.get("view");
+    if (v === "forgotPassword" || v === "signUp" || v === "signIn") return v;
+    return "signIn";
+  };
+
+  const [view, setView] = useState<AuthView>(initialView);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmCode, setConfirmCode] = useState("");
