@@ -28,7 +28,10 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function AuthRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
   if (isLoading) return <div className="app-loading"><p>Loading...</p></div>;
-  if (isAuthenticated) return <Navigate to="/app" replace />;
+  // Allow authenticated users to access password reset flow
+  const params = new URLSearchParams(window.location.search);
+  const isPasswordReset = params.get("view") === "forgotPassword";
+  if (isAuthenticated && !isPasswordReset) return <Navigate to="/app" replace />;
   return <>{children}</>;
 }
 

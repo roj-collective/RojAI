@@ -68,9 +68,14 @@ export default function AuthPage() {
   async function handleSignUp(e: FormEvent) {
     e.preventDefault();
     clearMessages();
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setError("Name is required.");
+      return;
+    }
     setIsLoading(true);
     try {
-      const result = await (await authModule()).signUp(email, password, name);
+      const result = await (await authModule()).signUp(email, password, trimmedName);
       if (!result.userConfirmed) {
         setView("verify");
         setSuccess("Account created! Check your email for a verification code.");
