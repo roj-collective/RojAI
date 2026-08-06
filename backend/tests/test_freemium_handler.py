@@ -339,7 +339,7 @@ class TestIdempotentReplay:
 
 class TestStaleReservationReuse:
     def test_stale_reservation_does_not_double_increment(self):
-        """reserve_generation with an existing 'reserved' record does NOT increment the counter again."""
+        """reserve_generation with an expired lease reuses without incrementing."""
         with patch("app.check_rate_limit"):
             with patch("app.reserve_generation", return_value={
                 "generationCount": 2, "plan": "free", "monthlyLimit": 5,
@@ -350,8 +350,20 @@ class TestStaleReservationReuse:
                         _make_cognito_event(body=_valid_body()), None
                     )
                     assert result["statusCode"] == 200
-                    # Reserve was called (it internally handles the reuse)
                     mock_reserve.assert_called_once()
+
+    def test_active_reservation_returns_409_retryable(self):
+        """An active lease (not expired) returns 409 with retryable hint."""
+        from usage_service import ActiveReservation
+
+        with patch("app.check_rate_limit"):
+            with patch("app.reserve_generation", side_effect=ActiveReservation("key")):
+                result = handler(
+                    _make_cognito_event(body=_valid_body()), None
+                )
+                assert result["statusCode"] == 409
+                body = json.loads(result["body"])
+                assert body["retryable"] is True
 
 
 # ── /internal/generate-listing API key enforcement ───────────────────────────

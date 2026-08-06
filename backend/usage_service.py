@@ -45,6 +45,10 @@ _PLAN_LIMITS = {
 # TTL for request records: 45 days (well past monthly reset)
 _REQUEST_TTL_SECONDS = 45 * 24 * 60 * 60
 
+# Reservation lease duration: 60 seconds.
+# A reservation older than this is considered stale and can be reclaimed.
+_RESERVATION_LEASE_SECONDS = 60
+
 
 # ── Table references (resolved once per Lambda cold start) ───────────────────
 
@@ -90,6 +94,15 @@ class DuplicateRequest(Exception):
     def __init__(self, idempotency_key: str):
         self.idempotency_key = idempotency_key
         super().__init__(f"Request already processed: {idempotency_key}")
+
+
+class ActiveReservation(Exception):
+    """Raised when an idempotency key has an active (non-expired) reservation.
+    The caller should retry after a short delay — do NOT call Bedrock."""
+
+    def __init__(self, idempotency_key: str):
+        self.idempotency_key = idempotency_key
+        super().__init__(f"Request is being processed: {idempotency_key}")
 
 
 def get_current_month() -> str:
@@ -215,20 +228,43 @@ def reserve_generation(
     status, existing = check_idempotency(user_id, idempotency_key)
     if status == "completed":
         raise DuplicateRequest(idempotency_key)
-    # If status == "reserved", this is a stale/abandoned reservation from a previous
-    # timeout. The monthly counter was already incremented. Reuse the reservation
-    # without incrementing again — just update the record timestamp.
+    # If status == "reserved", check whether the lease has expired.
+    # Active reservation (lease not expired): return 409 — caller should retry later.
+    # Stale reservation (lease expired): atomically reclaim without double-incrementing.
     if status == "reserved":
+        reserved_at = existing.get("reservedAt", "")
+        try:
+            reserved_ts = datetime.fromisoformat(reserved_at).timestamp()
+        except (ValueError, TypeError):
+            reserved_ts = 0
+
+        now_ts = time.time()
+        lease_expired = (now_ts - reserved_ts) > _RESERVATION_LEASE_SECONDS
+
+        if not lease_expired:
+            # Active reservation — another invocation is currently processing this.
+            # Caller should retry with backoff. Do NOT call Bedrock or increment usage.
+            raise ActiveReservation(idempotency_key)
+
+        # Lease expired — atomically reclaim the stale reservation.
+        # Use a conditional update to prevent race with another reclaimer.
         try:
             requests_table.update_item(
                 Key={"pk": f"USER#{user_id}", "sk": f"REQ#{idempotency_key}"},
-                UpdateExpression="SET createdAt = :now",
+                UpdateExpression="SET reservedAt = :now",
+                ConditionExpression="reservedAt = :old_ts",
                 ExpressionAttributeValues={
                     ":now": datetime.now(timezone.utc).isoformat(),
+                    ":old_ts": reserved_at,
                 },
             )
-        except ClientError:
-            pass  # Non-fatal — the reservation still exists
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                # Another process reclaimed it first — treat as active
+                raise ActiveReservation(idempotency_key)
+            raise
+
+        # Successfully reclaimed — counter was already incremented previously.
         return {
             "plan": plan,
             "generationCount": usage["generationCount"],
@@ -272,15 +308,17 @@ def reserve_generation(
             )
         raise
 
-    # Step 5: Record the request as reserved
+    # Step 5: Record the request as reserved (with lease timestamp)
     ttl = int(time.time()) + _REQUEST_TTL_SECONDS
+    now_iso = datetime.now(timezone.utc).isoformat()
     request_item = {
         "pk": f"USER#{user_id}",
         "sk": f"REQ#{idempotency_key}",
         "status": "reserved",
+        "reservedAt": now_iso,
         "month": month,
         "listingKey": listing_key or "",
-        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "createdAt": now_iso,
         "ttl": ttl,
     }
     try:

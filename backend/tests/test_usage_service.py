@@ -406,57 +406,167 @@ class TestGenerationVsRegeneration:
 class TestReservationRecovery:
     """
     If Lambda times out after reserve but before complete/release, the request
-    record stays in status='reserved'. The monthly counter is incremented.
+    record stays in status='reserved' with a reservedAt timestamp.
 
-    Recovery: TTL on the requests table ensures stale records expire (45 days).
-    The user's monthly counter is NOT automatically decremented — this is a
-    known tradeoff. At most 1 generation can be 'lost' per timeout event.
-
-    For the free tier (5/month), this is acceptable. The alternative (a background
-    sweeper) adds complexity disproportionate to the risk.
+    Recovery:
+    - If the lease has expired (>60s), a retry can atomically reclaim the
+      reservation without double-incrementing the counter.
+    - If the lease is active (<60s), a retry gets ActiveReservation (409).
+    - The monthly counter was already incremented by the original reservation.
     """
 
     @patch("usage_service._get_requests_table")
     @patch("usage_service._get_usage_table")
-    def test_stale_reserved_request_does_not_block_new_requests(self, mock_usage_fn, mock_requests_fn):
-        """A stale 'reserved' request with a different idempotencyKey does not block new requests."""
+    def test_stale_reserved_request_does_not_block_new_different_requests(self, mock_usage_fn, mock_requests_fn):
+        """A new request with a DIFFERENT idempotency key proceeds normally."""
         mock_usage = MagicMock()
         mock_usage.get_item.return_value = {"Item": {"plan": "free", "generationCount": 1}}
         mock_usage.update_item.return_value = {}
         mock_usage_fn.return_value = mock_usage
 
         mock_requests = MagicMock()
-        # New idempotency key — not a duplicate
+        # Different key — not found
         mock_requests.get_item.return_value = {}
         mock_requests.put_item.return_value = {}
         mock_requests_fn.return_value = mock_requests
 
-        # This succeeds — the stale reserved request from a previous timeout
-        # doesn't prevent new requests (different idempotencyKey).
-        result = reserve_generation("user-timeout", "new-key-after-timeout")
+        result = reserve_generation("user-timeout", "completely-new-key")
         assert result["generationCount"] == 2
 
     @patch("usage_service._get_requests_table")
     @patch("usage_service._get_usage_table")
-    def test_stale_reserved_same_key_treated_as_new(self, mock_usage_fn, mock_requests_fn):
-        """
-        A request with a 'reserved' (not 'completed') status and the same idempotencyKey
-        is treated as retryable — it won't raise DuplicateRequest because status != 'completed'.
-        """
+    def test_active_lease_same_key_raises_active_reservation(self, mock_usage_fn, mock_requests_fn):
+        """Same key with active lease raises ActiveReservation (not DuplicateRequest)."""
+        from datetime import datetime, timezone
+
         mock_usage = MagicMock()
         mock_usage.get_item.return_value = {"Item": {"plan": "free", "generationCount": 1}}
-        mock_usage.update_item.return_value = {}
         mock_usage_fn.return_value = mock_usage
 
         mock_requests = MagicMock()
-        # Existing record with status='reserved' (stale from a timeout)
+        recent_ts = datetime.now(timezone.utc).isoformat()
         mock_requests.get_item.return_value = {
-            "Item": {"status": "reserved", "pk": "USER#u", "sk": "REQ#stale-key"}
+            "Item": {"status": "reserved", "reservedAt": recent_ts, "pk": "USER#u", "sk": "REQ#k"}
         }
-        mock_requests.put_item.return_value = {}
         mock_requests_fn.return_value = mock_requests
 
-        # check_idempotency returns None for non-completed records
-        # So this request proceeds normally
+        with pytest.raises(ActiveReservation):
+            reserve_generation("u", "k")
+
+
+# ── Concurrency: two simultaneous calls with same idempotency key ────────────
+
+from usage_service import ActiveReservation
+
+
+class TestConcurrentReservation:
+    """
+    Two simultaneous requests with the same idempotency key must not both
+    call Bedrock. Only one should proceed; the other gets ActiveReservation.
+    """
+
+    @patch("usage_service._get_requests_table")
+    @patch("usage_service._get_usage_table")
+    def test_second_call_during_active_lease_raises_active_reservation(
+        self, mock_usage_fn, mock_requests_fn
+    ):
+        """
+        If a reservation was made < 60 seconds ago (lease not expired),
+        a second call with the same key raises ActiveReservation.
+        """
+        import time as _time
+        from datetime import datetime, timezone
+
+        mock_usage = MagicMock()
+        mock_usage.get_item.return_value = {"Item": {"plan": "free", "generationCount": 1}}
+        mock_usage_fn.return_value = mock_usage
+
+        mock_requests = MagicMock()
+        # Simulate: existing record reserved 5 seconds ago (lease active)
+        recent_ts = datetime.now(timezone.utc).isoformat()
+        mock_requests.get_item.return_value = {
+            "Item": {
+                "status": "reserved",
+                "reservedAt": recent_ts,
+                "pk": "USER#u",
+                "sk": "REQ#concurrent-key",
+            }
+        }
+        mock_requests_fn.return_value = mock_requests
+
+        with pytest.raises(ActiveReservation):
+            reserve_generation("u", "concurrent-key")
+
+        # Verify: no increment was called (no double-charge)
+        mock_usage.update_item.assert_not_called()
+
+    @patch("usage_service._get_requests_table")
+    @patch("usage_service._get_usage_table")
+    def test_reclaim_after_lease_expires(self, mock_usage_fn, mock_requests_fn):
+        """
+        If a reservation is older than the lease (60s), it can be reclaimed
+        atomically without incrementing usage again.
+        """
+        from datetime import datetime, timezone, timedelta
+
+        mock_usage = MagicMock()
+        mock_usage.get_item.return_value = {"Item": {"plan": "free", "generationCount": 2}}
+        mock_usage_fn.return_value = mock_usage
+
+        mock_requests = MagicMock()
+        # Simulate: reserved 120 seconds ago (lease expired)
+        old_ts = (datetime.now(timezone.utc) - timedelta(seconds=120)).isoformat()
+        mock_requests.get_item.return_value = {
+            "Item": {
+                "status": "reserved",
+                "reservedAt": old_ts,
+                "pk": "USER#u",
+                "sk": "REQ#stale-key",
+            }
+        }
+        mock_requests.update_item.return_value = {}
+        mock_requests_fn.return_value = mock_requests
+
         result = reserve_generation("u", "stale-key")
-        assert result is not None
+
+        assert result["reused_reservation"] is True
+        # Usage counter was NOT incremented again
+        mock_usage.update_item.assert_not_called()
+        # But the reservation timestamp was atomically updated
+        mock_requests.update_item.assert_called_once()
+
+    @patch("usage_service._get_requests_table")
+    @patch("usage_service._get_usage_table")
+    def test_concurrent_reclaim_race_raises_active(self, mock_usage_fn, mock_requests_fn):
+        """
+        If two processes try to reclaim the same expired reservation simultaneously,
+        the loser gets ActiveReservation (ConditionalCheckFailedException on the
+        atomic update).
+        """
+        from datetime import datetime, timezone, timedelta
+
+        mock_usage = MagicMock()
+        mock_usage.get_item.return_value = {"Item": {"plan": "free", "generationCount": 2}}
+        mock_usage_fn.return_value = mock_usage
+
+        mock_requests = MagicMock()
+        old_ts = (datetime.now(timezone.utc) - timedelta(seconds=120)).isoformat()
+        mock_requests.get_item.return_value = {
+            "Item": {
+                "status": "reserved",
+                "reservedAt": old_ts,
+                "pk": "USER#u",
+                "sk": "REQ#race-key",
+            }
+        }
+        # Simulate: another process won the conditional update
+        mock_requests.update_item.side_effect = _make_client_error(
+            "ConditionalCheckFailedException"
+        )
+        mock_requests_fn.return_value = mock_requests
+
+        with pytest.raises(ActiveReservation):
+            reserve_generation("u", "race-key")
+
+        # No usage increment
+        mock_usage.update_item.assert_not_called()

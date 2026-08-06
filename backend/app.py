@@ -47,6 +47,7 @@ from bedrock_service import BedrockError, generate_bedrock_listing
 from mock_service import generate_mock_listing
 from rate_limiter import RateLimitExceeded, check_rate_limit
 from usage_service import (
+    ActiveReservation,
     DuplicateRequest,
     RegenerationLimitExceeded,
     UsageLimitExceeded,
@@ -230,6 +231,14 @@ def _handle_generate(event: dict[str, Any], context: Any, origin: str) -> dict[s
             return _json_response(
                 409,
                 {"error": "This request has already been processed."},
+                origin,
+            )
+        except ActiveReservation:
+            # Another invocation is actively processing this request.
+            # Return 409 with retry hint — do NOT call Bedrock.
+            return _json_response(
+                409,
+                {"error": "This request is currently being processed. Please retry shortly.", "retryable": True},
                 origin,
             )
 
