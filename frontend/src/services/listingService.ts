@@ -82,7 +82,7 @@ export async function generateListing(
   options?: { idempotencyKey?: string; listingKey?: string }
 ): Promise<GeneratedListing> {
   const apiUrl = getApiUrl();
-  const endpoint = `${apiUrl}/generate-listing`;
+  const endpoint = `${apiUrl}/web/generate-listing`;
 
   const body: Record<string, unknown> = { ...form };
   if (options?.idempotencyKey) {
@@ -129,7 +129,7 @@ export async function generateListing(
 
 export async function fetchUsage(idToken: string): Promise<UsageInfo> {
   const apiUrl = getApiUrl();
-  const endpoint = `${apiUrl}/usage`;
+  const endpoint = `${apiUrl}/web/usage`;
 
   let response: Response;
   try {

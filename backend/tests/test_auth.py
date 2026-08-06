@@ -20,7 +20,7 @@ import logging
 import pytest
 from unittest.mock import patch
 
-from app import handler, _check_api_key_auth as _check_auth
+from app import handler, _check_auth
 
 
 def _make_event(method="POST", body="", headers=None):

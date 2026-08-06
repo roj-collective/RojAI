@@ -143,21 +143,13 @@ def test_options_preflight_returns_200():
     assert "Access-Control-Allow-Methods" in result["headers"]
 
 
-def test_get_method_returns_405_on_generate_listing():
-    """GET on /generate-listing should return 405 (method not allowed)."""
-    event = _make_event(_VALID_BODY, method="GET")
-    event["requestContext"]["http"]["path"] = "/generate-listing"
-    event["rawPath"] = "/generate-listing"
-    result = handler(event, None)
+def test_get_method_returns_405():
+    result = handler(_make_event(_VALID_BODY, method="GET"), None)
     assert result["statusCode"] == 405
 
 
-def test_delete_method_returns_405_on_generate_listing():
-    """DELETE on /generate-listing should return 405 (method not allowed)."""
-    event = _make_event(method="DELETE")
-    event["requestContext"]["http"]["path"] = "/generate-listing"
-    event["rawPath"] = "/generate-listing"
-    result = handler(event, None)
+def test_delete_method_returns_405():
+    result = handler(_make_event(method="DELETE"), None)
     assert result["statusCode"] == 405
 
 
