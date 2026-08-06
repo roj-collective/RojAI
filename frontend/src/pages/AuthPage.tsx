@@ -34,6 +34,7 @@ export default function AuthPage() {
   const [view, setView] = useState<AuthView>(initialView);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
   const [confirmCode, setConfirmCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -69,7 +70,7 @@ export default function AuthPage() {
     clearMessages();
     setIsLoading(true);
     try {
-      const result = await (await authModule()).signUp(email, password);
+      const result = await (await authModule()).signUp(email, password, name);
       if (!result.userConfirmed) {
         setView("verify");
         setSuccess("Account created! Check your email for a verification code.");
@@ -199,6 +200,19 @@ export default function AuthPage() {
             <p className="auth-form-desc">
               Register for free — 5 AI listing generations per month.
             </p>
+            <div className="auth-field">
+              <label htmlFor="signup-name">Name</label>
+              <input
+                id="signup-name"
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                autoComplete="name"
+                disabled={isLoading}
+                placeholder="Your name"
+              />
+            </div>
             <div className="auth-field">
               <label htmlFor="signup-email">Email</label>
               <input

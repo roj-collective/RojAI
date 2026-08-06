@@ -43,7 +43,7 @@ export function saveUserPreferences(prefs: UserPreferences): void {
 }
 
 export default function AccountPage() {
-  const { userEmail, logout, idToken } = useAuth();
+  const { userEmail, userName, logout, idToken } = useAuth();
   const [prefs, setPrefs] = useState<UserPreferences>(getUserPreferences);
   const [saved, setSaved] = useState(false);
   const [usage, setUsage] = useState<{ generationCount: number; monthlyLimit: number; plan: string; resetDate: string } | null>(null);
@@ -75,6 +75,10 @@ export default function AccountPage() {
       {/* Account info */}
       <section className="account-section">
         <h2 className="account-section__heading">Account Information</h2>
+        <div className="account-field">
+          <label className="account-field__label">Name</label>
+          <p className="account-field__value">{userName || "—"}</p>
+        </div>
         <div className="account-field">
           <label className="account-field__label">Email</label>
           <p className="account-field__value">{userEmail || "—"}</p>

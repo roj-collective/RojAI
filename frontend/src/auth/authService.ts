@@ -46,10 +46,11 @@ export interface SignUpResult {
   userSub: string;
 }
 
-export async function signUp(email: string, password: string): Promise<SignUpResult> {
+export async function signUp(email: string, password: string, name: string): Promise<SignUpResult> {
   const pool = getUserPool();
   const attributes = [
     new CognitoUserAttribute({ Name: "email", Value: email }),
+    new CognitoUserAttribute({ Name: "name", Value: name }),
   ];
 
   return new Promise((resolve, reject) => {
@@ -170,4 +171,19 @@ export function getUserEmail(): string | null {
   const pool = getUserPool();
   const user = pool.getCurrentUser();
   return user?.getUsername() ?? null;
+}
+
+/**
+ * Get the user's display name from the ID token's "name" claim.
+ * Falls back to the email prefix (before @) if name is not set.
+ */
+export function getUserDisplayName(session: CognitoUserSession | null): string | null {
+  if (!session) return null;
+  const payload = session.getIdToken().decodePayload();
+  const name = payload["name"] as string | undefined;
+  if (name && name.trim()) return name.trim();
+  // Fallback: email prefix
+  const email = (payload["email"] as string) || "";
+  if (email.includes("@")) return email.split("@")[0];
+  return null;
 }
