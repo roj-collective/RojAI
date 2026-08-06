@@ -120,6 +120,10 @@ export class RojAIAgentStack extends cdk.Stack {
           "local_server.py",
           ".env.example",
           "*.md",
+          // Website-only modules (not used by the agent)
+          "web_handler.py",
+          "usage_service.py",
+          "rate_limiter.py",
         ],
       }),
       timeout: cdk.Duration.minutes(2),

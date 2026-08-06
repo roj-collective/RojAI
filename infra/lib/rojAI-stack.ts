@@ -92,6 +92,10 @@ export class RojAIStack extends cdk.Stack {
           "local_server.py",
           ".env.example",
           "*.md",
+          // Website-only modules (not used by the generator)
+          "web_handler.py",
+          "usage_service.py",
+          "rate_limiter.py",
         ],
       }),
       timeout: cdk.Duration.seconds(30),

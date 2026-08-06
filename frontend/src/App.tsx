@@ -1,7 +1,13 @@
 import { useState, useEffect } from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, NavLink, useLocation } from "react-router-dom";
+import HomePage from "./pages/HomePage";
 import GeneratorPage from "./pages/GeneratorPage";
+import HistoryPage from "./pages/HistoryPage";
+import AccountPage from "./pages/AccountPage";
+import AuthPage from "./pages/AuthPage";
 import RojAILogo from "./components/RojAILogo";
+import UsageDisplay from "./components/UsageDisplay";
+import { AuthProvider, useAuth } from "./auth";
 
 type Theme = "light" | "dark";
 
@@ -12,8 +18,27 @@ function getInitialTheme(): Theme {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
-export default function App() {
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, isLoading } = useAuth();
+  if (isLoading) return <div className="app-loading"><p>Loading...</p></div>;
+  if (!isAuthenticated) return <Navigate to="/auth" replace />;
+  return <>{children}</>;
+}
+
+function AuthRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, isLoading } = useAuth();
+  if (isLoading) return <div className="app-loading"><p>Loading...</p></div>;
+  if (isAuthenticated) return <Navigate to="/app" replace />;
+  return <>{children}</>;
+}
+
+function AppShell() {
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
+  const { isAuthenticated, userEmail, logout } = useAuth();
+  const location = useLocation();
+
+  // Public pages don't show the app chrome (topbar with nav)
+  const isPublicPage = location.pathname === "/" || location.pathname === "/privacy" || location.pathname === "/terms";
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -24,31 +49,17 @@ export default function App() {
     setTheme((t) => (t === "light" ? "dark" : "light"));
   }
 
-  return (
-    <BrowserRouter>
+  // Public page layout (homepage, privacy, terms)
+  if (isPublicPage) {
+    return (
       <div className="app-shell">
         <header className="topbar">
-          {/* Brand */}
           <div className="topbar__brand">
-            <RojAILogo size={28} layout="horizontal" />
-          </div>
-
-          {/* Navigation */}
-          <nav className="topbar__nav" aria-label="Main navigation">
-            <a href="/" className="topbar__link topbar__link--active">
-              AI Listings
+            <a href="/" style={{ textDecoration: "none" }}>
+              <RojAILogo size={28} layout="horizontal" />
             </a>
-            <span className="topbar__link topbar__link--soon" title="Coming soon">
-              Analytics
-            </span>
-            <span className="topbar__link topbar__link--soon" title="Coming soon">
-              Settings
-            </span>
-          </nav>
-
-          {/* Right-side actions */}
+          </div>
           <div className="topbar__actions">
-            <span className="topbar__tagline">AI Marketplace Assistant</span>
             <button
               type="button"
               className="theme-toggle"
@@ -58,19 +69,115 @@ export default function App() {
             >
               {theme === "light" ? "🌙" : "☀️"}
             </button>
-            <div className="avatar" aria-label="User avatar" title="Account">
-              RJ
-            </div>
+            {isAuthenticated ? (
+              <a href="/app" className="btn btn--primary btn--sm">Dashboard</a>
+            ) : (
+              <>
+                <a href="/auth" className="topbar__link">Sign In</a>
+                <a href="/auth" className="btn btn--primary btn--sm">Get Started</a>
+              </>
+            )}
           </div>
         </header>
-
-        <div className="app-content">
+        <main className="app-content">
           <Routes>
-            <Route path="/" element={<GeneratorPage />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="/" element={<HomePage />} />
+            <Route path="/privacy" element={<div className="static-page"><h1>Privacy Policy</h1><p>Coming soon.</p></div>} />
+            <Route path="/terms" element={<div className="static-page"><h1>Terms of Service</h1><p>Coming soon.</p></div>} />
           </Routes>
-        </div>
+        </main>
       </div>
+    );
+  }
+
+  // Authenticated app layout
+  return (
+    <div className="app-shell">
+      <header className="topbar">
+        <div className="topbar__brand">
+          <a href="/" style={{ textDecoration: "none" }}>
+            <RojAILogo size={28} layout="horizontal" />
+          </a>
+        </div>
+
+        {isAuthenticated && (
+          <nav className="topbar__nav" aria-label="Main navigation">
+            <NavLink
+              to="/app"
+              end
+              className={({ isActive }) =>
+                `topbar__link ${isActive ? "topbar__link--active" : ""}`
+              }
+            >
+              AI Listings
+            </NavLink>
+            <NavLink
+              to="/history"
+              className={({ isActive }) =>
+                `topbar__link ${isActive ? "topbar__link--active" : ""}`
+              }
+            >
+              History
+            </NavLink>
+            <NavLink
+              to="/account"
+              className={({ isActive }) =>
+                `topbar__link ${isActive ? "topbar__link--active" : ""}`
+              }
+            >
+              Account
+            </NavLink>
+          </nav>
+        )}
+
+        <div className="topbar__actions">
+          {isAuthenticated && <UsageDisplay />}
+          <button
+            type="button"
+            className="theme-toggle"
+            onClick={toggleTheme}
+            aria-label={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
+            title={theme === "light" ? "Dark mode" : "Light mode"}
+          >
+            {theme === "light" ? "🌙" : "☀️"}
+          </button>
+          {isAuthenticated && (
+            <div className="topbar__user">
+              <span className="topbar__email" title={userEmail || ""}>
+                {userEmail?.split("@")[0] || "User"}
+              </span>
+              <button
+                type="button"
+                className="topbar__logout"
+                onClick={logout}
+                title="Sign out"
+              >
+                Sign out
+              </button>
+            </div>
+          )}
+        </div>
+      </header>
+
+      <main className="app-content">
+        <Routes>
+          <Route path="/app" element={<ProtectedRoute><GeneratorPage /></ProtectedRoute>} />
+          <Route path="/history" element={<ProtectedRoute><HistoryPage /></ProtectedRoute>} />
+          <Route path="/account" element={<ProtectedRoute><AccountPage /></ProtectedRoute>} />
+          <Route path="/auth" element={<AuthRoute><AuthPage /></AuthRoute>} />
+          <Route path="*" element={<Navigate to="/app" replace />} />
+        </Routes>
+      </main>
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <AppShell />
+      </AuthProvider>
     </BrowserRouter>
   );
 }

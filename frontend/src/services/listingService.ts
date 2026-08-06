@@ -1,28 +1,24 @@
 /**
  * listingService.ts
  *
- * Calls the RojAI backend (POST /generate-listing).
+ * Calls the RojAI backend (POST /generate-listing) and (GET /usage).
  *
- * Local development:
- *   Set VITE_API_URL=http://localhost:8000 in frontend/.env.local
- *   and run `USE_MOCK_BEDROCK=true python local_server.py` in the backend.
- *
- * Production:
- *   Set VITE_API_URL to the API Gateway invoke URL deployed by CDK.
+ * Authentication: Sends the Cognito ID token as a Bearer token.
+ * The token is obtained from the auth context — never stored in this module.
  *
  * The backend returns `description`; the frontend type uses `fullDescription`.
- * The mapping is done here, in the service layer, so neither the backend
- * schema nor the frontend components need to change.
+ * The mapping is done here so neither the backend schema nor the frontend
+ * components need to change.
  */
 
 import type { ProductFormData, GeneratedListing } from "../types/listing";
 
-// ── Backend response shape (matches backend/schemas.py ListingResponse) ──────
+// ── Backend response shape ───────────────────────────────────────────────────
 
 interface BackendListing {
   title: string;
   bulletPoints: string[];
-  description: string; // mapped → fullDescription below
+  description: string;
   seoKeywords: string[];
   tags: string[];
   metadata: {
@@ -33,11 +29,38 @@ interface BackendListing {
   };
 }
 
-interface BackendError {
-  error: string | string[];
+// ── Usage response shape ─────────────────────────────────────────────────────
+
+export interface UsageInfo {
+  plan: string;
+  generationCount: number;
+  monthlyLimit: number;
+  regenerationLimit: number;
+  resetDate: string;
+  month: string;
 }
 
-// ── API URL ───────────────────────────────────────────────────────────────────
+// ── Error response shape ─────────────────────────────────────────────────────
+
+interface BackendError {
+  error: string | string[];
+  limitReached?: boolean;
+  regenerationLimitReached?: boolean;
+  current?: number;
+  limit?: number;
+  resetsAt?: string;
+  retryAfter?: number;
+}
+
+export interface GenerationError {
+  message: string;
+  limitReached?: boolean;
+  regenerationLimitReached?: boolean;
+  resetsAt?: string;
+  retryAfter?: number;
+}
+
+// ── API URL ──────────────────────────────────────────────────────────────────
 
 function getApiUrl(): string {
   const url = import.meta.env.VITE_API_BASE_URL;
@@ -48,68 +71,113 @@ function getApiUrl(): string {
         "and restart the dev server."
     );
   }
-  return url.replace(/\/$/, ""); // strip trailing slash
+  return url.replace(/\/$/, "");
 }
 
-// ── Main export ───────────────────────────────────────────────────────────────
+// ── Generate listing ─────────────────────────────────────────────────────────
 
 export async function generateListing(
-  form: ProductFormData
+  form: ProductFormData,
+  idToken: string,
+  options?: { idempotencyKey?: string; listingKey?: string }
 ): Promise<GeneratedListing> {
   const apiUrl = getApiUrl();
-  const endpoint = `${apiUrl}/generate-listing`;
+  const endpoint = `${apiUrl}/web/generate-listing`;
+
+  const body: Record<string, unknown> = { ...form };
+  if (options?.idempotencyKey) {
+    body.idempotencyKey = options.idempotencyKey;
+  }
+  if (options?.listingKey) {
+    body.listingKey = options.listingKey;
+  }
 
   let response: Response;
   try {
     response = await fetch(endpoint, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify(body),
     });
   } catch (networkErr) {
-    throw new Error(
-      "Could not reach the backend. " +
-        "Make sure the local server is running on " +
-        (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000") +
-        "."
-    );
+    throw {
+      message:
+        "Could not reach the backend. Please check your connection and try again.",
+    } as GenerationError;
   }
 
   if (!response.ok) {
-    const errorMessage = await _extractErrorMessage(response);
-    throw new Error(errorMessage);
+    const errorData = await _extractError(response);
+    throw errorData;
   }
 
   const data: BackendListing = await response.json();
 
-  // Map backend field name to frontend type
   return {
     title: data.title,
     bulletPoints: data.bulletPoints,
-    fullDescription: data.description, // ← the only name difference
+    fullDescription: data.description,
     seoKeywords: data.seoKeywords,
     tags: data.tags,
   };
 }
 
-// ── Error extraction ──────────────────────────────────────────────────────────
+// ── Get usage ────────────────────────────────────────────────────────────────
 
-async function _extractErrorMessage(response: Response): Promise<string> {
+export async function fetchUsage(idToken: string): Promise<UsageInfo> {
+  const apiUrl = getApiUrl();
+  const endpoint = `${apiUrl}/web/usage`;
+
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+      },
+    });
+  } catch {
+    throw { message: "Could not reach the server." } as GenerationError;
+  }
+
+  if (!response.ok) {
+    throw { message: "Failed to load usage information." } as GenerationError;
+  }
+
+  return response.json();
+}
+
+// ── Error extraction ─────────────────────────────────────────────────────────
+
+async function _extractError(response: Response): Promise<GenerationError> {
   try {
     const body: BackendError = await response.json();
-    if (Array.isArray(body.error)) {
-      return body.error.join(" ");
-    }
-    if (typeof body.error === "string" && body.error.trim()) {
-      return body.error;
-    }
+    const message = Array.isArray(body.error)
+      ? body.error.join(" ")
+      : typeof body.error === "string" && body.error.trim()
+        ? body.error
+        : _genericErrorMessage(response.status);
+
+    return {
+      message,
+      limitReached: body.limitReached,
+      regenerationLimitReached: body.regenerationLimitReached,
+      resetsAt: body.resetsAt,
+      retryAfter: body.retryAfter,
+    };
   } catch {
-    // JSON parse failed — fall through to generic message
+    return { message: _genericErrorMessage(response.status) };
   }
-  return _genericErrorMessage(response.status);
 }
 
 function _genericErrorMessage(status: number): string {
+  if (status === 401) return "Please sign in to generate listings.";
+  if (status === 403) return "AI generation is temporarily disabled. Please try again later.";
+  if (status === 429) return "You've reached your usage limit. Please try again later.";
+  if (status === 409) return "This request was already processed.";
   if (status === 400) return "The request was invalid. Please check your inputs and try again.";
   if (status === 502) return "The AI service is temporarily unavailable. Please try again.";
   if (status === 500) return "An unexpected server error occurred. Please try again.";
