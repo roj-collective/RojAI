@@ -1,12 +1,15 @@
 import * as cdk from "aws-cdk-lib";
 import * as budgets from "aws-cdk-lib/aws-budgets";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
+import * as cognito from "aws-cdk-lib/aws-cognito";
+import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
 import * as apigwv2integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
+import * as apigwv2authorizers from "aws-cdk-lib/aws-apigatewayv2-authorizers";
 import { Construct } from "constructs";
 import * as path from "path";
 
@@ -27,6 +30,10 @@ export class RojAIStack extends cdk.Stack {
     const bedrockModelId: string =
       this.node.tryGetContext("bedrockModelId") ??
       "anthropic.claude-3-sonnet-20240229-v1:0";
+
+    const bedrockFreeModelId: string =
+      this.node.tryGetContext("bedrockFreeModelId") ??
+      "us.amazon.nova-lite-v1:0";
 
     const allowedOriginsRaw: string =
       this.node.tryGetContext("allowedOrigins") ??
@@ -52,9 +59,74 @@ export class RojAIStack extends cdk.Stack {
       props?.budgetNotificationEmail ??
       "";
 
+    // ── Amazon Cognito User Pool ───────────────────────────────────────────
+    const userPool = new cognito.UserPool(this, "UserPool", {
+      userPoolName: "rojai-users",
+      selfSignUpEnabled: true,
+      signInAliases: { email: true },
+      autoVerify: { email: true },
+      standardAttributes: {
+        email: { required: true, mutable: true },
+      },
+      passwordPolicy: {
+        minLength: 8,
+        requireLowercase: true,
+        requireUppercase: true,
+        requireDigits: true,
+        requireSymbols: false,
+      },
+      accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
+    // SPA client (public — no client secret)
+    const userPoolClient = userPool.addClient("WebClient", {
+      userPoolClientName: "rojai-web",
+      authFlows: {
+        userSrp: true,
+        custom: false,
+        adminUserPassword: false,
+      },
+      preventUserExistenceErrors: true,
+      accessTokenValidity: cdk.Duration.hours(1),
+      idTokenValidity: cdk.Duration.hours(1),
+      refreshTokenValidity: cdk.Duration.days(30),
+    });
+
+    // ── DynamoDB: Usage Table ──────────────────────────────────────────────
+    // One item per user per month: tracks generation count and plan info.
+    const usageTable = new dynamodb.Table(this, "UsageTable", {
+      tableName: "rojai-usage",
+      partitionKey: { name: "pk", type: dynamodb.AttributeType.STRING }, // USER#{userId}
+      sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },     // MONTH#{yyyy-MM}
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
+    // ── DynamoDB: Requests Table ───────────────────────────────────────────
+    // Tracks individual generation requests for idempotency and regeneration counts.
+    // TTL removes old records automatically.
+    const requestsTable = new dynamodb.Table(this, "RequestsTable", {
+      tableName: "rojai-requests",
+      partitionKey: { name: "pk", type: dynamodb.AttributeType.STRING }, // USER#{userId}
+      sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },     // REQ#{idempotencyKey}
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: "ttl",
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    // ── DynamoDB: Rate Limits Table ────────────────────────────────────────
+    // Sliding-window rate limit entries with TTL for automatic cleanup.
+    const rateLimitsTable = new dynamodb.Table(this, "RateLimitsTable", {
+      tableName: "rojai-rate-limits",
+      partitionKey: { name: "pk", type: dynamodb.AttributeType.STRING }, // USER#{userId}
+      sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },     // TS#{timestamp_ms}
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: "ttl",
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
     // ── API Key Secret (Secrets Manager) ───────────────────────────────────
-    // The secret must be pre-created with a plaintext API key value.
-    // Create: aws secretsmanager create-secret --name rojai/api-key --secret-string "$(openssl rand -hex 32)"
     const apiKeySecret = secretsmanager.Secret.fromSecretNameV2(
       this,
       "ApiKeySecret",
@@ -100,21 +172,36 @@ export class RojAIStack extends cdk.Stack {
       environment: {
         USE_MOCK_BEDROCK: "false",
         BEDROCK_MODEL_ID: bedrockModelId,
+        BEDROCK_FREE_MODEL_ID: bedrockFreeModelId,
+        BEDROCK_MAX_OUTPUT_TOKENS: "1500",
         ALLOWED_ORIGIN: allowedOrigins.join(","),
         ROJAI_API_KEY_SECRET_NAME: apiKeySecretName,
-        // ROJAI_API_KEY is resolved at runtime from Secrets Manager
-        // ROJAI_AUTH_DISABLED is NOT set — auth is always enabled in production
-        // AWS_REGION is injected automatically by the Lambda runtime
+        USAGE_TABLE_NAME: usageTable.tableName,
+        REQUESTS_TABLE_NAME: requestsTable.tableName,
+        RATE_LIMITS_TABLE_NAME: rateLimitsTable.tableName,
+        FREE_MONTHLY_LIMIT: "5",
+        FREE_REGENERATION_LIMIT: "1",
+        RATE_LIMIT_PER_MINUTE: "5",
+        GENERATION_ENABLED: "true",
+        // AWS_REGION injected automatically by Lambda runtime
       },
     });
+
+    // ── DynamoDB permissions ───────────────────────────────────────────────
+    usageTable.grantReadWriteData(generatorFn);
+    requestsTable.grantReadWriteData(generatorFn);
+    rateLimitsTable.grantReadWriteData(generatorFn);
 
     // ── Secrets Manager read permission (API key only) ─────────────────────
     apiKeySecret.grantRead(generatorFn);
 
     // ── Bedrock permission ─────────────────────────────────────────────────
     const isInferenceProfile = bedrockModelId.startsWith("us.") || bedrockModelId.startsWith("global.");
+    const isFreeInferenceProfile = bedrockFreeModelId.startsWith("us.") || bedrockFreeModelId.startsWith("global.");
 
     const bedrockResources: string[] = [];
+
+    // Paid model
     if (isInferenceProfile) {
       bedrockResources.push(
         `arn:aws:bedrock:${this.region}:${this.account}:inference-profile/${bedrockModelId}`
@@ -127,6 +214,23 @@ export class RojAIStack extends cdk.Stack {
       bedrockResources.push(
         `arn:aws:bedrock:${this.region}::foundation-model/${bedrockModelId}`
       );
+    }
+
+    // Free-tier model (if different)
+    if (bedrockFreeModelId !== bedrockModelId) {
+      if (isFreeInferenceProfile) {
+        bedrockResources.push(
+          `arn:aws:bedrock:${this.region}:${this.account}:inference-profile/${bedrockFreeModelId}`
+        );
+        const baseFreeModelId = bedrockFreeModelId.replace(/^(us|global)\./, "");
+        bedrockResources.push(
+          `arn:aws:bedrock:*::foundation-model/${baseFreeModelId}`
+        );
+      } else {
+        bedrockResources.push(
+          `arn:aws:bedrock:${this.region}::foundation-model/${bedrockFreeModelId}`
+        );
+      }
     }
 
     generatorFn.addToRolePolicy(
@@ -146,6 +250,7 @@ export class RojAIStack extends cdk.Stack {
         allowOrigins: allowedOrigins,
         allowMethods: [
           apigwv2.CorsHttpMethod.POST,
+          apigwv2.CorsHttpMethod.GET,
           apigwv2.CorsHttpMethod.OPTIONS,
         ],
         allowHeaders: ["Content-Type", "Authorization"],
@@ -153,15 +258,24 @@ export class RojAIStack extends cdk.Stack {
       },
     });
 
+    // ── API Gateway JWT Authorizer (Cognito) ───────────────────────────────
+    const jwtAuthorizer = new apigwv2authorizers.HttpJwtAuthorizer(
+      "CognitoAuthorizer",
+      `https://cognito-idp.${this.region}.amazonaws.com/${userPool.userPoolId}`,
+      {
+        jwtAudience: [userPoolClient.userPoolClientId],
+        identitySource: ["$request.header.Authorization"],
+      },
+    );
+
     // ── API Gateway Throttling ─────────────────────────────────────────────
-    // Conservative limits for a single-merchant app to prevent cost abuse.
     const cfnStage = httpApi.defaultStage!.node.defaultChild as cdk.aws_apigatewayv2.CfnStage;
     cfnStage.defaultRouteSettings = {
       throttlingBurstLimit: Number(this.node.tryGetContext("apiBurstLimit")) || 10,
       throttlingRateLimit: Number(this.node.tryGetContext("apiRateLimit")) || 5,
     };
 
-    // POST /generate-listing
+    // POST /generate-listing (authenticated via Cognito JWT — standalone website)
     httpApi.addRoutes({
       path: "/generate-listing",
       methods: [apigwv2.HttpMethod.POST],
@@ -169,11 +283,34 @@ export class RojAIStack extends cdk.Stack {
         "GeneratorIntegration",
         generatorFn
       ),
+      authorizer: jwtAuthorizer,
+    });
+
+    // POST /internal/generate-listing (server-to-server — Shopify app uses Bearer API key)
+    // No JWT authorizer: Lambda validates the API key in-process.
+    httpApi.addRoutes({
+      path: "/internal/generate-listing",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2integrations.HttpLambdaIntegration(
+        "InternalGeneratorIntegration",
+        generatorFn
+      ),
+      // No authorizer — Lambda enforces API key auth
+    });
+
+    // GET /usage (authenticated — returns current usage for the user)
+    httpApi.addRoutes({
+      path: "/usage",
+      methods: [apigwv2.HttpMethod.GET],
+      integration: new apigwv2integrations.HttpLambdaIntegration(
+        "UsageIntegration",
+        generatorFn
+      ),
+      authorizer: jwtAuthorizer,
     });
 
     // ── CloudWatch Alarms ──────────────────────────────────────────────────
 
-    // Alarm: Lambda platform errors (crashes, timeouts, OOM)
     new cloudwatch.Alarm(this, "GeneratorErrorAlarm", {
       alarmName: "rojai-generator-errors",
       alarmDescription: "Lambda platform errors (crashes, timeouts, OOM)",
@@ -186,7 +323,6 @@ export class RojAIStack extends cdk.Stack {
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
 
-    // Alarm: Lambda approaching timeout
     new cloudwatch.Alarm(this, "GeneratorDurationAlarm", {
       alarmName: "rojai-generator-duration",
       alarmDescription: "Generator Lambda duration exceeds 25 seconds",
@@ -200,8 +336,6 @@ export class RojAIStack extends cdk.Stack {
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
 
-    // Metric filter: detect application-level 5xx responses in logs
-    // (Lambda may return 200 to API Gateway but the body contains status 500/502)
     const serverErrorMetricFilter = new logs.MetricFilter(this, "ServerErrorFilter", {
       logGroup,
       filterPattern: logs.FilterPattern.literal("?status=500 ?status=502 ?status=503"),
@@ -293,6 +427,21 @@ export class RojAIStack extends cdk.Stack {
     new cdk.CfnOutput(this, "BedrockModelId", {
       description: "Configured Bedrock model ID",
       value: bedrockModelId,
+    });
+
+    new cdk.CfnOutput(this, "CognitoUserPoolId", {
+      description: "Cognito User Pool ID",
+      value: userPool.userPoolId,
+    });
+
+    new cdk.CfnOutput(this, "CognitoUserPoolClientId", {
+      description: "Cognito User Pool Client ID (for frontend)",
+      value: userPoolClient.userPoolClientId,
+    });
+
+    new cdk.CfnOutput(this, "UsageTableName", {
+      description: "DynamoDB usage table name",
+      value: usageTable.tableName,
     });
   }
 }
