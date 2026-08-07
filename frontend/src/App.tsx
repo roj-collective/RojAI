@@ -28,13 +28,16 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function AuthRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
   if (isLoading) return <div className="app-loading"><p>Loading...</p></div>;
-  if (isAuthenticated) return <Navigate to="/app" replace />;
+  // Allow authenticated users to access password reset flow
+  const params = new URLSearchParams(window.location.search);
+  const isPasswordReset = params.get("view") === "forgotPassword";
+  if (isAuthenticated && !isPasswordReset) return <Navigate to="/app" replace />;
   return <>{children}</>;
 }
 
 function AppShell() {
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
-  const { isAuthenticated, userEmail, logout } = useAuth();
+  const { isAuthenticated, userName, userEmail, logout } = useAuth();
   const location = useLocation();
 
   // Public pages don't show the app chrome (topbar with nav)
@@ -144,7 +147,7 @@ function AppShell() {
           {isAuthenticated && (
             <div className="topbar__user">
               <span className="topbar__email" title={userEmail || ""}>
-                {userEmail?.split("@")[0] || "User"}
+                {userName || "User"}
               </span>
               <button
                 type="button"

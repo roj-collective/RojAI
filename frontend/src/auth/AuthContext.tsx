@@ -19,6 +19,7 @@ import {
 interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
+  userName: string | null;
   userEmail: string | null;
   idToken: string | null;
 }
@@ -34,21 +35,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({
     isAuthenticated: false,
     isLoading: true,
+    userName: null,
     userEmail: null,
     idToken: null,
   });
 
   const checkSession = useCallback(async () => {
     try {
-      // Dynamic import: Cognito SDK only loaded at runtime (not at module parse time)
-      const { getSession, getUserEmail } = await import("./authService");
+      const { getSession, getUserEmail, getUserDisplayName } = await import("./authService");
       const session = await getSession();
       if (session && session.isValid()) {
         const token = session.getIdToken().getJwtToken();
         const email = getUserEmail();
+        const name = getUserDisplayName(session);
         setState({
           isAuthenticated: true,
           isLoading: false,
+          userName: name,
           userEmail: email,
           idToken: token,
         });
@@ -56,6 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setState({
           isAuthenticated: false,
           isLoading: false,
+          userName: null,
           userEmail: null,
           idToken: null,
         });
@@ -64,6 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setState({
         isAuthenticated: false,
         isLoading: false,
+        userName: null,
         userEmail: null,
         idToken: null,
       });
@@ -83,6 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState({
       isAuthenticated: false,
       isLoading: false,
+      userName: null,
       userEmail: null,
       idToken: null,
     });
