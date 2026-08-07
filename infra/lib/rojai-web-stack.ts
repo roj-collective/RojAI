@@ -32,7 +32,7 @@ export class RojAIWebStack extends cdk.Stack {
     const bedrockModelId: string =
       this.node.tryGetContext("webBedrockModelId") ??
       props?.bedrockModelId ??
-      "us.anthropic.claude-3-haiku-20240307-v1:0";
+      "us.anthropic.claude-sonnet-4-5-20250929-v1:0";
 
     const allowedOriginsRaw: string =
       this.node.tryGetContext("webAllowedOrigins") ??
