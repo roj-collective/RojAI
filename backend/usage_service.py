@@ -285,12 +285,15 @@ def reserve_generation(
             Key={"pk": f"USER#{user_id}", "sk": f"MONTH#{month}"},
             UpdateExpression=(
                 "SET generationCount = if_not_exists(generationCount, :zero) + :one, "
-                "plan = if_not_exists(plan, :default_plan), "
+                "#p = if_not_exists(#p, :default_plan), "
                 "updatedAt = :now"
             ),
             ConditionExpression=(
                 "attribute_not_exists(generationCount) OR generationCount < :limit"
             ),
+            ExpressionAttributeNames={
+                "#p": "plan",
+            },
             ExpressionAttributeValues={
                 ":zero": 0,
                 ":one": 1,
