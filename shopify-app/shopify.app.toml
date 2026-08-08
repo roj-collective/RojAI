@@ -1,6 +1,6 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
-client_id = "fbda30fc0ed4c605675c272dd383871a"
+client_id = "09e538220f377e6ed286b383cbd46810"
 name = "RojAi Agent"
 application_url = "https://rojai-shopify.onrender.com"
 embedded = true
